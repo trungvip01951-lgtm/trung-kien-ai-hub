@@ -6,7 +6,7 @@ import type { HubEvent, Settings, StartTaskInput } from "../shared/contract";
 import { AgentRunner } from "./agent";
 import { validateLimits } from "./budget";
 import { HubDb } from "./db";
-import { KeyStore } from "./keystore";
+import { KeyRing } from "./keyring";
 import { claudeExecutablePath } from "./sdk-path";
 import { runSmokeTest } from "./smoke";
 import { checkUpdateNow, installUpdate, startUpdater } from "./updater";
@@ -17,13 +17,15 @@ const outArg = process.argv.find((a) => a.startsWith("--smoke-out="));
 let win: BrowserWindow | null = null;
 const emit = (e: HubEvent) => win?.webContents.send("hub-event", e);
 
-function registerIpc(db: HubDb, keys: KeyStore, runner: AgentRunner) {
+function registerIpc(db: HubDb, keys: KeyRing, runner: AgentRunner) {
   const h = (ch: string, fn: (...a: any[]) => unknown) => ipcMain.handle(ch, (_e, ...a) => fn(...a));
   h("appVersion", () => app.getVersion());
   h("hasApiKey", () => keys.has());
-  h("setApiKey", (k: string) => keys.set(String(k ?? "")));
-  h("clearApiKey", () => keys.clear());
-  h("testApiKey", () => runner.testKey(app.getPath("temp")));
+  h("listApiKeys", () => keys.list());
+  h("addApiKey", (k: string, label: string) => keys.add(String(k ?? ""), String(label ?? "")));
+  h("removeApiKey", (id: string) => keys.remove(String(id)));
+  h("moveApiKey", (id: string, d: number) => keys.move(String(id), d < 0 ? -1 : 1));
+  h("testApiKey", (id: string) => runner.testKey(app.getPath("temp"), String(id)));
   h("getSettings", () => db.getSettings());
   h("saveSettings", (s: Settings) => {
     const err = validateLimits(s.limits);
@@ -84,9 +86,9 @@ async function startApp() {
   mkdirSync(dataDir, { recursive: true });
   const db = new HubDb(path.join(dataDir, "hub.db"));
   db.markInterrupted();
-  const keys = new KeyStore(path.join(dataDir, "api-key.bin"));
+  const keys = new KeyRing(path.join(dataDir, "api-keys.bin"), path.join(dataDir, "api-keys-state.json"), path.join(dataDir, "api-key.bin"));
   const runner = new AgentRunner({
-    db, query, emit, getApiKey: () => keys.get(), claudePath: claudeExecutablePath(), appVersion: app.getVersion(),
+    db, query, emit, keys, claudePath: claudeExecutablePath(), appVersion: app.getVersion(),
   });
   registerIpc(db, keys, runner);
 

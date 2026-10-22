@@ -7,11 +7,19 @@ import type { Options, Query, SDKMessage } from "@anthropic-ai/claude-agent-sdk"
 import type { HubEvent } from "../shared/contract";
 import { agentEnv, AgentRunner } from "./agent";
 import { HubDb } from "./db";
+import type { KeyEntry } from "./keys";
 
 // Agent giả: phát lại các tin nhắn kịch bản, không gọi API thật.
 type Script = (opts: Options, ctl: { interrupted: () => boolean }) => AsyncGenerator<SDKMessage>;
 
-function setup(script: Script, apiKey: string | null = "sk-ant-api03-gia") {
+function setup(script: Script, apiKey: string | null = "sk-ant-api03-gia", extraKeys: string[] = []) {
+  const all = apiKey ? [apiKey, ...extraKeys] : [];
+  const entries: KeyEntry[] = all.map((k, i) => ({ id: `k${i + 1}`, label: `Key ${i + 1}`, key: k, addedAt: "" }));
+  const marks: string[] = [];
+  const keys = {
+    forUse: () => entries, get: (id: string) => entries.find((e) => e.id === id) ?? null,
+    markError: (id: string, r: string) => marks.push(`${id}:err:${r}`), markOk: (id: string) => marks.push(`${id}:ok`),
+  };
   const dir = mkdtempSync(path.join(os.tmpdir(), "du-an-"));
   const db = new HubDb(":memory:");
   const project = db.addProject("Mẫu", dir);
@@ -19,14 +27,14 @@ function setup(script: Script, apiKey: string | null = "sk-ant-api03-gia") {
   const calls: Options[] = [];
   let interrupted = false;
   const runner = new AgentRunner({
-    db, emit: (e) => events.push(e), getApiKey: () => apiKey, claudePath: "/khong/can", appVersion: "0.0.0-test",
+    db, emit: (e) => events.push(e), keys, claudePath: "/khong/can", appVersion: "0.0.0-test",
     query: ({ options }) => {
       calls.push(options!);
       const gen = script(options!, { interrupted: () => interrupted });
       return Object.assign(gen, { interrupt: async () => { interrupted = true; return undefined; } }) as unknown as Query;
     },
   });
-  return { db, project, events, calls, runner };
+  return { db, project, events, calls, runner, marks };
 }
 
 const init = (apiKeySource = "ANTHROPIC_API_KEY") =>
@@ -174,4 +182,60 @@ test("chưa có API key thì báo, không tạo việc", async () => {
   const r = await t.runner.start(input(t.project.id));
   assert.equal(r.ok, false);
   assert.equal(t.db.listTasks(10).length, 0);
+});
+
+const billingFail = () => [
+  { type: "assistant", parent_tool_use_id: null, error: "billing_error", message: { id: "e1", model: "claude-haiku-5-5", content: [{ type: "text", text: "Credit balance is too low" }], usage: { input_tokens: 0, output_tokens: 0 } } },
+  { type: "result", subtype: "success", is_error: true, result: "Credit balance is too low", total_cost_usd: 0 },
+] as unknown as SDKMessage[];
+
+test("nhiều key: key 1 hết tiền ngay từ đầu thì tự chạy lại bằng key 2", async () => {
+  const t = setup(async function* (opts) {
+    yield init();
+    if (opts.env!.ANTHROPIC_API_KEY === "sk-ant-api03-mot") { yield* billingFail(); return; }
+    yield assistant("m1", [{ type: "text", text: "Đã làm bằng key 2" }]);
+    yield result(0.02);
+  }, "sk-ant-api03-mot", ["sk-ant-api03-hai"]);
+  const r = await t.runner.start(input(t.project.id));
+  const task = await r.done!;
+  assert.equal(task.status, "done");
+  assert.equal(t.calls.length, 2);
+  assert.equal(t.calls[1].env!.ANTHROPIC_API_KEY, "sk-ant-api03-hai");
+  assert.ok(t.marks.includes("k1:err:Hết tín dụng hoặc lỗi thanh toán"));
+  assert.ok(t.marks.includes("k2:ok"));
+  const texts = t.db.conversationItems(r.conversationId!).map((i) => i.text);
+  assert.ok(texts.some((x) => x.includes("Tự chuyển sang Key 2")));
+  assert.ok(!texts.some((x) => x.includes("Credit balance")) || texts.filter((x) => x.includes("Credit")).length === 0);
+});
+
+test("nhiều key: hết tiền giữa chừng sau khi đã gọi công cụ thì dừng, không chạy lại", async () => {
+  const t = setup(async function* (opts) {
+    yield init();
+    yield assistant("m1", [{ type: "tool_use", name: "Write", input: { file_path: "a.txt" } }]);
+    if (opts.env!.ANTHROPIC_API_KEY === "sk-ant-api03-mot") { yield* billingFail(); return; }
+    yield result(0.02);
+  }, "sk-ant-api03-mot", ["sk-ant-api03-hai"]);
+  const r = await t.runner.start(input(t.project.id));
+  const task = await r.done!;
+  assert.equal(t.calls.length, 1);
+  assert.equal(task.status, "error");
+  assert.ok(task.stopReason!.includes("tiếp tục"));
+});
+
+test("nhiều key: tất cả đều hết tiền thì báo đã thử hết", async () => {
+  const t = setup(async function* () { yield init(); yield* billingFail(); }, "sk-ant-api03-mot", ["sk-ant-api03-hai", "sk-ant-api03-ba"]);
+  const r = await t.runner.start(input(t.project.id));
+  const task = await r.done!;
+  assert.equal(t.calls.length, 3);
+  assert.ok(task.stopReason!.includes("Đã thử hết 3 key"));
+});
+
+test("nhiều key: lỗi không phải do key thì không chuyển key", async () => {
+  const t = setup(async function* () {
+    yield init();
+    yield { type: "result", subtype: "error_during_execution", is_error: true, total_cost_usd: 0.01 } as unknown as SDKMessage;
+  }, "sk-ant-api03-mot", ["sk-ant-api03-hai"]);
+  const r = await t.runner.start(input(t.project.id));
+  await r.done;
+  assert.equal(t.calls.length, 1);
 });

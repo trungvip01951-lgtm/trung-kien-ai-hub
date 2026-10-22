@@ -24,3 +24,9 @@ Mục mới nối xuống cuối. Mỗi mục: `## dd/mm/yyyy hh:mm — <tên AI
 ## 22/10/2026 17:48 — Claude-1
 - Bản 0.1.1 theo yêu cầu anh Trung (nút cập nhật): ô cập nhật luôn hiện cuối thanh bên (phiên bản đang dùng, nút "Kiểm tra cập nhật", tiến độ tải, nút "Cập nhật ngay" cài im lặng rồi tự mở lại). Không cho cập nhật khi đang chạy việc. Tệp: `src/shared/contract.ts` (checkUpdate), `src/preload.ts`, `src/main/updater.ts`, `src/main/index.ts`, `src/renderer/App.tsx`, `styles.css`.
 - Kiểm: 24/24 test; giao diện bấm "Kiểm tra cập nhật" ở bản chạy thử hiện đúng thông báo, 0 lỗi.
+
+## 22/10/2026 19:46 — Claude-1
+- Bản 0.2.0 theo quyết định cùng giờ: nhiều API key theo thứ tự ưu tiên (`src/main/keyring.ts` mã hoá cả danh sách bằng DPAPI, `keys.ts` logic thuần). Bản 0.1.x lưu 1 key ở `api-key.bin` được tự chuyển thành Key 1.
+- Chuyển key: lỗi `billing_error`, `authentication_failed`, `account_on_hold`, `verification_required`, `rate_limit` hoặc kết quả báo hết tín dụng/sai key. Chưa gọi công cụ nào thì tự chạy lại việc bằng key kế tiếp; đã gọi công cụ thì dừng, báo gõ "tiếp tục". Key vừa lỗi xếp cuối 30 phút. Hạn mức tính chung, phần đã tiêu của lần thử trước trừ vào hạn mức lần sau.
+- Giao diện Cài đặt: bảng key (tên, 4 ký tự cuối, dùng/lỗi gần nhất), nút ↑↓, Kiểm tra từng key, Xoá; dòng phiên trong Chat ghi key đang dùng. Bỏ `keystore.ts`, đổi hợp đồng IPC (listApiKeys/addApiKey/removeApiKey/moveApiKey/testApiKey(id)).
+- Kiểm: 31/31 test (thêm 7); SDK thật với 2 key giả: thử lần lượt cả 2, báo "Đã thử hết 2 key", chi phí 0; giao diện kiểm bằng Chromium với lõi giả (thêm 2 key, đổi thứ tự, 0 lỗi). Chưa kiểm lưu key thật trên cloud (Linux không có kho khoá; Windows dùng DPAPI).

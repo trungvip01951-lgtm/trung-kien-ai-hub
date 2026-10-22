@@ -6,6 +6,7 @@ import { allowance, crossedWarning, cycleStart, dayStart, SDK_HEADROOM } from ".
 import type { HubDb } from "./db";
 import { decide, summarizeInput } from "./policy";
 import { estimateCostUsd, type TokenUsage } from "./pricing";
+import { keyErrorReason, type KeyEntry } from "./keys";
 import { checkSettings, settingsFiles } from "./settings-guard";
 
 export type QueryFn = (args: { prompt: string; options?: Options }) => Query;
@@ -13,7 +14,8 @@ export type QueryFn = (args: { prompt: string; options?: Options }) => Query;
 export interface AgentDeps {
   db: HubDb;
   query: QueryFn;
-  getApiKey: () => string | null;
+  // Danh sách API key theo thứ tự sẽ thử, và nơi ghi kết quả dùng key.
+  keys: { forUse(): KeyEntry[]; get(id: string): KeyEntry | null; markError(id: string, reason: string): void; markOk(id: string): void };
   emit: (e: HubEvent) => void;
   claudePath: string;
   appVersion: string;
@@ -44,6 +46,14 @@ const ESTIMATE_SAFETY = 1.2;
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
 const usd4 = (n: number) => `${n.toFixed(4)} USD`;
+
+// Kết quả một lần chạy với một API key.
+interface Attempt {
+  status: TaskStatus; message: string; resultCost: number | null;
+  keyError: string | null;   // lỗi do key (hết tiền, sai key...) → có thể chuyển key
+  sideEffects: boolean;      // agent đã gọi công cụ → không tự chạy lại để tránh làm trùng
+  estimate: number;          // ước tính riêng của lần chạy này (dùng khi không có result)
+}
 
 interface Running {
   taskId: number;
@@ -107,8 +117,8 @@ export class AgentRunner {
   async start(input: StartTaskInput): Promise<{ ok: boolean; taskId?: number; conversationId?: number; message?: string; done?: Promise<TaskRow> }> {
     const { db } = this.deps;
     if (this.busy()) return { ok: false, message: "Đang có một việc chạy. Mốc 1 chỉ chạy một việc một lúc để không vượt hạn mức." };
-    const apiKey = this.deps.getApiKey();
-    if (!apiKey) return { ok: false, message: "Chưa có API key. Vào Cài đặt để nhập." };
+    const keys = this.deps.keys.forUse();
+    if (!keys.length) return { ok: false, message: "Chưa có API key. Vào Cài đặt để nhập." };
     const project = db.getProject(input.projectId);
     if (!project) return { ok: false, message: "Không tìm thấy dự án." };
     if (!existsSync(project.path)) return { ok: false, message: `Thư mục dự án không còn tồn tại: ${project.path}` };
@@ -125,7 +135,6 @@ export class AgentRunner {
     if (!conv) conv = db.getConversation(db.createConversation(project.id, clip(prompt.replace(/\s+/g, " "), 60)).id)!;
 
     const taskId = db.createTask({ conversationId: conv.id, prompt, model: input.model, effort: input.effort, permission: input.permission, allowanceUsd: u.allowedUsd });
-    const abort = new AbortController();
     const level = input.permission;
 
     const preToolUse: HookCallback = async (hookInput, _id, { signal }) => {
@@ -145,51 +154,97 @@ export class AgentRunner {
       return { behavior: "deny", message: "Anh Trung không cho phép thao tác này." };
     };
 
-    const options: Options = {
+    const resume = conv.sessionId;
+    const makeOptions = (apiKey: string, abort: AbortController, budgetUsd: number): Options => ({
       cwd: project.path,
       model: input.model,
       effort: input.effort,
       permissionMode: "default",
       settingSources: ["user", "project", "local"],
       includePartialMessages: true,
-      maxBudgetUsd: Number((u.allowedUsd * SDK_HEADROOM).toFixed(4)),
+      maxBudgetUsd: Number((budgetUsd * SDK_HEADROOM).toFixed(4)),
       abortController: abort,
       env: agentEnv(apiKey, this.deps.appVersion),
       pathToClaudeCodeExecutable: this.deps.claudePath,
       hooks: { PreToolUse: [{ hooks: [preToolUse], timeout: HOOK_TIMEOUT_S }] },
       canUseTool,
-      ...(conv.sessionId ? { resume: conv.sessionId } : {}),
-    };
+      ...(resume ? { resume } : {}),
+    });
 
     db.addItem({ taskId, conversationId: conv.id, kind: "user", text: prompt });
-    const q = this.deps.query({ prompt, options });
-    this.running = { taskId, query: q, abort, stopRequested: false, budgetHit: false };
+    this.running = { taskId, query: null as unknown as Query, abort: new AbortController(), stopRequested: false, budgetHit: false };
     this.deps.emit({ type: "task-started", taskId, conversationId: conv.id, allowanceUsd: u.allowedUsd });
 
-    const done = this.consume(taskId, conv.id, conv.sessionTotalUsd, conv.sessionTotalOk, input.model, u.allowedUsd, project.path, q)
-      .finally(() => { this.running = null; this.denyAllPending(); });
+    const prevTotal = conv.sessionTotalUsd;
+    const prevOk = conv.sessionTotalOk;
+    const convId = conv.id;
+    const done = this.runWithKeys(taskId, convId, keys, u.allowedUsd, (key, spent) => {
+      const abort = new AbortController();
+      const q = this.deps.query({ prompt, options: makeOptions(key.key, abort, u.allowedUsd - spent) });
+      this.running!.query = q;
+      this.running!.abort = abort;
+      return { q, prevTotal, prevOk };
+    }, project.path).finally(() => { this.running = null; this.denyAllPending(); });
     return { ok: true, taskId, conversationId: conv.id, done };
   }
 
-  private async consume(taskId: number, conversationId: number, prevSessionTotal: number, prevTotalOk: boolean, model: ModelId,
-    allowedUsd: number, projectDir: string, q: AsyncIterable<SDKMessage>): Promise<TaskRow> {
+  // Chạy lần lượt theo thứ tự key. Key bị từ chối ngay từ đầu (chưa gọi công cụ nào) thì tự chạy lại bằng key kế tiếp;
+  // lỗi key giữa chừng thì dừng, việc sau tự dùng key kế tiếp (tránh làm trùng thao tác đã chạy).
+  private async runWithKeys(taskId: number, conversationId: number, keys: KeyEntry[], allowedUsd: number,
+    launch: (key: KeyEntry, spent: number) => { q: Query; prevTotal: number; prevOk: boolean }, projectDir: string): Promise<TaskRow> {
     const { db, emit } = this.deps;
     const before = this.usageNow();
     const seen = new Map<string, { model: string; u: TokenUsage }>();
-    const totals = (): TokenUsage & { cost: number } => {
-      const t = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
-      for (const { model: m, u } of seen.values()) {
-        t.input += u.input; t.output += u.output; t.cacheRead += u.cacheRead; t.cacheWrite += u.cacheWrite;
-        t.cost += estimateCostUsd(m, u);
+    let spent = 0;
+    let last: Attempt = { status: "error", message: "", resultCost: null, keyError: null, sideEffects: false, estimate: 0 };
+    let anyResultMissing = false;
+    const item = (kind: Parameters<HubDb["addItem"]>[0]["kind"], text: string) =>
+      emit({ type: "item", item: db.addItem({ taskId, conversationId, kind, text }) });
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      const { q, prevTotal, prevOk } = launch(key, spent);
+      last = await this.attempt(taskId, conversationId, prevTotal, prevOk, allowedUsd, spent, projectDir, q, seen, key.label);
+      // Lần chạy không có result (dừng, lỗi, tắt app): tính theo ước tính nhân hệ số an toàn.
+      spent += last.resultCost ?? last.estimate * ESTIMATE_SAFETY;
+      if (last.resultCost === null) anyResultMissing = true;
+      if (!last.keyError) { if (last.status === "done") this.deps.keys.markOk(key.id); break; }
+      this.deps.keys.markError(key.id, last.keyError);
+      const next = keys[i + 1];
+      if (this.running?.stopRequested || this.running?.budgetHit) break;
+      if (last.sideEffects) {
+        last.message = `${key.label}: ${last.keyError} giữa chừng. Đã dừng để không làm trùng thao tác.${next ? ` Gõ "tiếp tục" để làm tiếp bằng ${next.label}.` : " Không còn key nào khác."}`;
+        break;
       }
-      return t;
-    };
+      if (!next) { last.message = `${key.label}: ${last.keyError}. Đã thử hết ${keys.length} key, không key nào dùng được.`; break; }
+      item("system", `${key.label}: ${last.keyError}. Tự chuyển sang ${next.label}.`);
+    }
+    return this.finish(taskId, conversationId, last, spent, anyResultMissing, seen, before);
+  }
+
+  private totals(seen: Map<string, { model: string; u: TokenUsage }>): TokenUsage & { cost: number } {
+    const t = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+    for (const { model: m, u } of seen.values()) {
+      t.input += u.input; t.output += u.output; t.cacheRead += u.cacheRead; t.cacheWrite += u.cacheWrite;
+      t.cost += estimateCostUsd(m, u);
+    }
+    return t;
+  }
+
+  private async attempt(taskId: number, conversationId: number, prevSessionTotal: number, prevTotalOk: boolean,
+    allowedUsd: number, spentBefore: number, projectDir: string, q: AsyncIterable<SDKMessage>,
+    seen: Map<string, { model: string; u: TokenUsage }>, keyLabel: string): Promise<Attempt> {
+    const { db, emit } = this.deps;
+    const estBefore = this.totals(seen).cost;
+    const totals = () => this.totals(seen);
+    const attemptEstimate = () => totals().cost - estBefore;
     const item = (kind: Parameters<HubDb["addItem"]>[0]["kind"], text: string, extra: { toolName?: string; isError?: boolean } = {}) =>
       emit({ type: "item", item: db.addItem({ taskId, conversationId, kind, text, ...extra }) });
 
     let status: TaskStatus = "error";
     let message = "";
     let resultCost: number | null = null;
+    let keyError: string | null = null;
+    let sideEffects = false;
     let streamMsg: { id: string; model: string } | null = null;
     try {
       for await (const m of q) {
@@ -201,7 +256,7 @@ export class AgentRunner {
           }
           db.setSession(conversationId, m.session_id);
           const claudeMd = ["CLAUDE.md", path.join(".claude", "CLAUDE.md")].some((f) => existsSync(path.join(projectDir, f)));
-          emit({ type: "session", taskId, sessionId: m.session_id, model: m.model, skills: m.skills ?? [], tools: m.tools, claudeMd });
+          emit({ type: "session", taskId, sessionId: m.session_id, model: m.model, skills: m.skills ?? [], tools: m.tools, claudeMd, keyLabel });
         } else if (m.type === "stream_event") {
           const ev = m.event;
           // Số token cuối của mỗi lượt gọi nằm ở message_delta; tin nhắn assistant có thể mang số tạm.
@@ -224,20 +279,23 @@ export class AgentRunner {
             const now = seen.get(msg.id)!.u;
             if (prev && prev.u.output > now.output) now.output = prev.u.output;
             const t = totals();
-            db.updateTask(taskId, { costUsd: t.cost, costIsEstimate: true, inputTokens: t.input, outputTokens: t.output,
+            db.updateTask(taskId, { costUsd: spentBefore + attemptEstimate(), costIsEstimate: true, inputTokens: t.input, outputTokens: t.output,
               cacheReadTokens: t.cacheRead, cacheWriteTokens: t.cacheWrite });
-            emit({ type: "usage", taskId, costUsd: t.cost, costIsEstimate: true, inputTokens: t.input, outputTokens: t.output });
-            if (t.cost >= allowedUsd && !this.running!.budgetHit) {
+            emit({ type: "usage", taskId, costUsd: spentBefore + attemptEstimate(), costIsEstimate: true, inputTokens: t.input, outputTokens: t.output });
+            if (spentBefore + attemptEstimate() >= allowedUsd && !this.running!.budgetHit) {
               this.running!.budgetHit = true;
               item("system", `Chạm hạn mức việc này (${usd4(allowedUsd)}), đang dừng.`);
               void this.running!.query.interrupt().catch(() => undefined);
             }
           }
           const sub = m.parent_tool_use_id !== null;
-          if (m.error) item("error", `Lỗi từ API: ${m.error}`);
+          if (m.error) {
+            keyError = keyError ?? keyErrorReason(m.error, null);
+            if (!keyError) item("error", `Lỗi từ API: ${m.error}`);
+          }
           for (const b of msg.content) {
-            if (b.type === "text" && b.text.trim() && !sub) item("assistant", b.text);
-            else if (b.type === "tool_use") item("tool_use", clip(JSON.stringify(b.input), 2000), { toolName: sub ? `${b.name} (AI phụ)` : b.name });
+            if (b.type === "text" && b.text.trim() && !sub && !keyError) item("assistant", b.text);
+            else if (b.type === "tool_use") sideEffects = true, item("tool_use", clip(JSON.stringify(b.input), 2000), { toolName: sub ? `${b.name} (AI phụ)` : b.name });
           }
         } else if (m.type === "user" && Array.isArray(m.message.content)) {
           for (const b of m.message.content) {
@@ -252,12 +310,12 @@ export class AgentRunner {
           // tổng cũ, nên lấy số lớn hơn giữa phần chênh và ước tính riêng nhân hệ số an toàn (đếm dư, không đếm thiếu).
           const total = m.total_cost_usd;
           const delta = total >= prevSessionTotal ? total - prevSessionTotal : total;
-          resultCost = Math.max(delta, totals().cost * (prevTotalOk ? 1 : ESTIMATE_SAFETY));
+          resultCost = Math.max(delta, attemptEstimate() * (prevTotalOk ? 1 : ESTIMATE_SAFETY));
           db.setSessionTotal(conversationId, total, true);
           // Lỗi như sai API key vẫn trả subtype "success" nhưng is_error = true.
           const failed = m.subtype === "success" && m.is_error;
           status = m.subtype === "success" ? (failed ? "error" : "done") : m.subtype === "error_max_budget_usd" ? "budget" : "error";
-          if (failed) message = `Lỗi: ${clip(m.result, 300)}`;
+          if (failed) { keyError = keyError ?? keyErrorReason(null, m.result); message = `Lỗi: ${clip(m.result, 300)}`; }
           else if (m.subtype === "success") message = `Xong. Chi phí ~${usd4(resultCost)}.`;
           else if (m.subtype === "error_max_budget_usd") message = `Dừng vì chạm hạn mức việc này. Chi phí ~${usd4(resultCost)}.`;
           else message = `Lỗi: ${m.subtype}. Chi phí ~${usd4(resultCost)}.`;
@@ -267,15 +325,22 @@ export class AgentRunner {
       if (!message) message = `Lỗi khi chạy agent: ${clip(String(err), 500)}`;
     }
 
+    return { status, message, resultCost, keyError, sideEffects, estimate: attemptEstimate() };
+  }
+
+  private finish(taskId: number, conversationId: number, a: Attempt, spent: number, resultMissing: boolean,
+    seen: Map<string, { model: string; u: TokenUsage }>, before: ReturnType<AgentRunner["usageNow"]>): TaskRow {
+    const { db, emit } = this.deps;
+    let { status, message } = a;
     const r = this.running;
     if (r?.budgetHit) { status = "budget"; message = message || "Dừng vì chạm hạn mức việc này."; }
     else if (r?.stopRequested) { status = "stopped"; message = "Đã dừng theo yêu cầu."; }
-    const t = totals();
-    const cost = resultCost ?? t.cost * ESTIMATE_SAFETY;
-    if (resultCost === null) db.markSessionTotalUnsure(conversationId);
-    db.updateTask(taskId, { status, costUsd: cost, costIsEstimate: resultCost === null, inputTokens: t.input, outputTokens: t.output,
+    const t = this.totals(seen);
+    const cost = spent;
+    if (resultMissing) db.markSessionTotalUnsure(conversationId);
+    db.updateTask(taskId, { status, costUsd: cost, costIsEstimate: a.resultCost === null, inputTokens: t.input, outputTokens: t.output,
       cacheReadTokens: t.cacheRead, cacheWriteTokens: t.cacheWrite, stopReason: message, finished: true });
-    item(status === "done" ? "system" : "error", message || "Việc kết thúc không có kết quả.");
+    emit({ type: "item", item: db.addItem({ taskId, conversationId, kind: status === "done" ? "system" : "error", text: message || "Việc kết thúc không có kết quả." }) });
     const task = db.getTask(taskId)!;
     emit({ type: "task-finished", task, message });
 
@@ -288,14 +353,15 @@ export class AgentRunner {
   }
 
   // Gọi thử thật nhỏ bằng Haiku để kiểm tra API key và cách tính phí. Chi phí được ghi như một việc.
-  async testKey(tmpDir: string): Promise<{ ok: boolean; message: string; costUsd: number }> {
-    const apiKey = this.deps.getApiKey();
-    if (!apiKey) return { ok: false, message: "Chưa có API key.", costUsd: 0 };
+  async testKey(tmpDir: string, keyId: string): Promise<{ ok: boolean; message: string; costUsd: number }> {
+    const entry = this.deps.keys.get(keyId);
+    if (!entry) return { ok: false, message: "Không tìm thấy key.", costUsd: 0 };
+    const apiKey = entry.key;
     if (this.busy()) return { ok: false, message: "Đang có việc chạy, thử lại sau.", costUsd: 0 };
     const u = this.usageNow();
     if (u.blockedReason) return { ok: false, message: u.blockedReason, costUsd: 0 };
     const db = this.deps.db;
-    const taskId = db.createTask({ conversationId: null, prompt: "[Kiểm tra API key]", model: "claude-haiku-5-5", effort: "low", permission: "read", allowanceUsd: 0.05 });
+    const taskId = db.createTask({ conversationId: null, prompt: `[Kiểm tra API key: ${entry.label}]`, model: "claude-haiku-5-5", effort: "low", permission: "read", allowanceUsd: 0.05 });
     const abort = new AbortController();
     this.testing = true;
     let source = "";
@@ -325,6 +391,8 @@ export class AgentRunner {
     }
     db.updateTask(taskId, { status: ok ? "done" : "error", costUsd: cost, costIsEstimate: false, stopReason: detail, finished: true });
     if (source && source !== "ANTHROPIC_API_KEY") return { ok: false, message: `Agent không dùng API key (nguồn: ${source}).`, costUsd: cost };
+    if (ok) this.deps.keys.markOk(keyId);
+    else this.deps.keys.markError(keyId, keyErrorReason(null, detail) ?? clip(detail || "Lỗi không rõ", 200));
     return ok
       ? { ok: true, message: `Key hoạt động, tính phí theo API key. Trả lời: "${clip(detail, 40)}". Chi phí ~${usd4(cost)}.`, costUsd: cost }
       : { ok: false, message: `Key không dùng được: ${detail || "không rõ lỗi"}`, costUsd: cost };

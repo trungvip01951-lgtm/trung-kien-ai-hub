@@ -12,6 +12,11 @@ export const MODELS: { id: ModelId; label: string }[] = [
   { id: "claude-opus-5-5", label: "Opus 5.5 (việc khó)" },
 ];
 
+export interface ApiKeyInfo {
+  id: string; label: string; last4: string; priority: number; addedAt: string;
+  lastError: string | null; lastErrorAt: string | null; lastUsedAt: string | null;
+}
+
 export interface Project { id: number; name: string; path: string; createdAt: string }
 
 export interface Conversation {
@@ -54,7 +59,7 @@ export interface Settings {
 // Sự kiện phần lõi đẩy lên giao diện trong lúc chạy việc.
 export type HubEvent =
   | { type: "task-started"; taskId: number; conversationId: number; allowanceUsd: number }
-  | { type: "session"; taskId: number; sessionId: string; model: string; skills: string[]; tools: string[]; claudeMd: boolean }
+  | { type: "session"; taskId: number; sessionId: string; model: string; skills: string[]; tools: string[]; claudeMd: boolean; keyLabel: string }
   | { type: "text-delta"; taskId: number; text: string }
   | { type: "item"; item: ChatItem }
   | { type: "usage"; taskId: number; costUsd: number; costIsEstimate: boolean; inputTokens: number; outputTokens: number }
@@ -72,11 +77,14 @@ export interface SearchHit { conversationId: number; taskId: number; snippet: st
 
 export interface HubApi {
   appVersion(): Promise<string>;
-  // API key: chỉ ghi và kiểm tra, không bao giờ đọc ngược ra giao diện.
+  // Nhiều API key theo thứ tự ưu tiên; key hết tiền/lỗi thì tự chuyển key kế tiếp.
+  // Chỉ ghi và kiểm tra, không bao giờ đọc ngược key ra giao diện (chỉ 4 ký tự cuối).
   hasApiKey(): Promise<boolean>;
-  setApiKey(key: string): Promise<{ ok: boolean; message: string }>;
-  clearApiKey(): Promise<void>;
-  testApiKey(): Promise<{ ok: boolean; message: string; costUsd: number }>;
+  listApiKeys(): Promise<ApiKeyInfo[]>;
+  addApiKey(key: string, label: string): Promise<{ ok: boolean; message: string }>;
+  removeApiKey(id: string): Promise<void>;
+  moveApiKey(id: string, delta: -1 | 1): Promise<void>;
+  testApiKey(id: string): Promise<{ ok: boolean; message: string; costUsd: number }>;
 
   getSettings(): Promise<Settings>;
   saveSettings(s: Settings): Promise<Settings>;

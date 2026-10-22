@@ -4,7 +4,7 @@
 
 ## Trạng thái — 22/10/2026
 
-- Mốc 1 (bản 0.1.0): nhập API key (mã hoá DPAPI), chọn dự án, chat với agent theo dòng chữ chạy dần, hiện bước công cụ, hỏi xác nhận trước lệnh/thao tác rủi ro, lịch sử SQLite có tìm kiếm, dừng/tiếp tục hội thoại, đếm token và chi phí, hạn mức việc/ngày/kỳ có chặn cứng, tự cập nhật từ GitHub Releases.
+- Mốc 1 (bản 0.2.0): nhập nhiều API key theo thứ tự ưu tiên, key hết tiền/lỗi tự chuyển key kế tiếp (mã hoá DPAPI), chọn dự án, chat với agent theo dòng chữ chạy dần, hiện bước công cụ, hỏi xác nhận trước lệnh/thao tác rủi ro, lịch sử SQLite có tìm kiếm, dừng/tiếp tục hội thoại, đếm token và chi phí, hạn mức việc/ngày/kỳ có chặn cứng, tự cập nhật từ GitHub Releases.
 - Trên cloud không có API key và dữ liệu thật (anh Trung chốt 22/10/2026, xem `ho-so/QUYET-DINH.md`).
 
 ## Cấu trúc

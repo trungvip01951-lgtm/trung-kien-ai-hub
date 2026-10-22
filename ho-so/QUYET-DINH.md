@@ -23,3 +23,6 @@ Mục tiêu dự án mở rộng từ "phần mềm chat Zalo" thành ứng dụ
 > app tải về rồi làm song chức năng tiếp có tự cập nhật ko vậy e
 
 Ghi chú: (1) Mốc 0 cài và mở được trên máy anh (ảnh chụp cửa sổ "Trung Kiên AI Hub"). (2) Tổ chức Console đã gắn thẻ; anh tự đặt hạn mức. (3) Làm Mốc 1 trong cùng phiên.
+
+## 22/10/2026 19:46 — phiên Claude Code (web)
+> Cho a nhiều chỗ nhập api key nhé hết cái này tự chuyển cái khác ưu tiên dùng theo thứ tự nhé em

@@ -164,7 +164,7 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
           if (e.taskId !== taskRef.current) break;
           setEntries((es) => [...es, {
             key: nextKey(), kind: "note", tone: "info",
-            text: `Model ${e.model} · đã nạp ${e.skills.length} skills · CLAUDE.md: ${e.claudeMd ? "có" : "không"}`,
+            text: `${e.keyLabel} · Model ${e.model} · đã nạp ${e.skills.length} skills · CLAUDE.md: ${e.claudeMd ? "có" : "không"}`,
           }]);
           break;
         case "usage":

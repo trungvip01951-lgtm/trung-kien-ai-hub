@@ -6,8 +6,10 @@ const call = (ch: string) => (...args: unknown[]) => ipcRenderer.invoke(ch, ...a
 const api: HubApi = {
   appVersion: call("appVersion") as HubApi["appVersion"],
   hasApiKey: call("hasApiKey") as HubApi["hasApiKey"],
-  setApiKey: call("setApiKey") as HubApi["setApiKey"],
-  clearApiKey: call("clearApiKey") as HubApi["clearApiKey"],
+  listApiKeys: call("listApiKeys") as HubApi["listApiKeys"],
+  addApiKey: call("addApiKey") as HubApi["addApiKey"],
+  removeApiKey: call("removeApiKey") as HubApi["removeApiKey"],
+  moveApiKey: call("moveApiKey") as HubApi["moveApiKey"],
   testApiKey: call("testApiKey") as HubApi["testApiKey"],
   getSettings: call("getSettings") as HubApi["getSettings"],
   saveSettings: call("saveSettings") as HubApi["saveSettings"],
