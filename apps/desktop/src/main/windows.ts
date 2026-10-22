@@ -24,6 +24,9 @@ if (-not ('TkUser32' -as [type])) {
 [DllImport("user32.dll")] public static extern System.IntPtr WindowFromPoint(System.Drawing.Point p);
 [DllImport("user32.dll")] public static extern System.IntPtr GetAncestor(System.IntPtr h, int flags);
 [DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(System.IntPtr h, out int pid);
+[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern System.IntPtr SendMessage(System.IntPtr h, int msg, System.IntPtr w, string l);
+[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern System.IntPtr SendMessage(System.IntPtr h, int msg, System.IntPtr w, System.Text.StringBuilder l);
+[DllImport("user32.dll")] public static extern System.IntPtr SendMessage(System.IntPtr h, int msg, System.IntPtr w, System.IntPtr l);
 '@ -ReferencedAssemblies System.Drawing
 }
 # Cửa sổ của chính Trung Kiên AI Hub: agent không được đọc/bấm vào (tránh tự bấm "Cho phép" trong hộp hỏi quyền).
@@ -110,16 +113,28 @@ if (-not $how) {
 Out @{ ok = $true; element = $e.Current.Name; how = $how }`,
   set_text: String.raw`
 $w = Find-Window $P; Focus $w; $e = Find-Element $w $P; $how = ''
+$h = [System.IntPtr]$e.Current.NativeWindowHandle
 try { $e.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue([string]$P.text); $how = 'ValuePattern' } catch {
-  $e.SetFocus(); [System.Windows.Forms.SendKeys]::SendWait('^a')
-  $esc = ([string]$P.text) -replace '([+^%~(){}\[\]])', '{$1}'
-  [System.Windows.Forms.SendKeys]::SendWait($esc); $how = 'gõ phím'
+  if ($h -ne [System.IntPtr]::Zero) {
+    # Ô điều khiển Windows cổ điển: gửi WM_SETTEXT thẳng, không cần bàn phím hay tiêu điểm.
+    Assert-NotSelf $h
+    [void][TkUser32]::SendMessage($h, 0x000C, [System.IntPtr]::Zero, [string]$P.text); $how = 'WM_SETTEXT'
+  } else {
+    $e.SetFocus(); [System.Windows.Forms.SendKeys]::SendWait('^a')
+    $esc = ([string]$P.text) -replace '([+^%~(){}\[\]])', '{$1}'
+    [System.Windows.Forms.SendKeys]::SendWait($esc); $how = 'gõ phím'
+  }
 }
 Out @{ ok = $true; element = $e.Current.Name; how = $how }`,
   read_text: String.raw`
 $w = Find-Window $P; $e = Find-Element $w $P; $v = $null
 try { $v = $e.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value } catch {}
 if ($null -eq $v) { try { $v = $e.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern).DocumentRange.GetText(100000) } catch {} }
+if ($null -eq $v -and $e.Current.NativeWindowHandle) {
+  $h = [System.IntPtr]$e.Current.NativeWindowHandle
+  $n = [int][TkUser32]::SendMessage($h, 0x000E, [System.IntPtr]::Zero, [System.IntPtr]::Zero)
+  if ($n -gt 0) { $sb = New-Object System.Text.StringBuilder ([Math]::Min($n, 100000) + 1); [void][TkUser32]::SendMessage($h, 0x000D, [System.IntPtr]($sb.Capacity), $sb); $v = $sb.ToString() }
+}
 if ($null -eq $v) { $v = $e.Current.Name }
 Out @{ element = $e.Current.Name; text = $v }`,
   send_keys: String.raw`
@@ -165,7 +180,8 @@ export async function runWindows(action: WinAction, params: Record<string, unkno
   const tkArgs = JSON.stringify({ ...defaults, ...params, selfPids: [process.pid, ...(selfPids?.() ?? [])] });
   if (tkArgs.length > 30_000) throw new Error("Nội dung quá dài cho một lần (tối đa khoảng 30.000 ký tự); chia nhỏ ra.");
   const env = { ...process.env, TK_ARGS: tkArgs };
-  const script = `${PRELUDE}\n${SCRIPTS[action]}`;
+  // Bọc lỗi thành JSON trên stdout: lỗi ghi ra stderr của PowerShell khi bị chuyển hướng là dạng CLIXML khó đọc.
+  const script = `${PRELUDE}\ntry {\n${SCRIPTS[action]}\n} catch { ConvertTo-Json -InputObject @{ tkError = $_.Exception.Message } -Compress; exit 0 }`;
   return new Promise((resolve, reject) => {
     // -EncodedCommand (UTF-16LE base64): chạy nguyên khối lệnh, không phụ thuộc cách PowerShell đọc từng dòng.
     const encoded = Buffer.from(script, "utf16le").toString("base64");
@@ -181,7 +197,10 @@ export async function runWindows(action: WinAction, params: Record<string, unkno
       clearTimeout(timer);
       if (code !== 0) { reject(new Error(cleanPsError(Buffer.concat(err).toString("utf8")) || `PowerShell thoát mã ${code}`)); return; }
       const line = Buffer.concat(out).toString("utf8").trim().split(/\r?\n/).pop() ?? "";
-      try { resolve(JSON.parse(line)); } catch { reject(new Error(`Kết quả không đọc được: ${line.slice(0, 200)}`)); }
+      let parsed: unknown;
+      try { parsed = JSON.parse(line); } catch { reject(new Error(`Kết quả không đọc được: ${line.slice(0, 200)}`)); return; }
+      const e = (parsed as { tkError?: unknown } | null)?.tkError;
+      if (typeof e === "string") reject(new Error(e)); else resolve(parsed);
     });
     p.stdin.end();
   });
