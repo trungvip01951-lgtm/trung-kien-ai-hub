@@ -9,7 +9,7 @@ import { estimateCostUsd, type TokenUsage } from "./pricing";
 import { keyErrorReason, type KeyEntry } from "./keys";
 import { checkSettings, settingsFiles } from "./settings-guard";
 import { buildSystemPrompt, ROUTED_AGENTS } from "./routing";
-import { CHROME_GUIDE, CHROME_SERVER, chromeServerConfig, decideBrowser, isBrowserTool, pageUrlFrom, type ChromePaths } from "./chrome";
+import { CHROME_GUIDE, CHROME_SERVER, chromeServerConfig, decideBrowser, isBrowserTool, newBrowserState, updateBrowserState, type ChromePaths } from "./chrome";
 
 export type QueryFn = (args: { prompt: string; options?: Options }) => Query;
 
@@ -109,13 +109,13 @@ export class AgentRunner {
     this.pending.clear();
   }
 
-  private askUser(taskId: number, toolName: string, input: unknown, signal?: AbortSignal): Promise<boolean> {
+  private askUser(taskId: number, toolName: string, input: unknown, signal?: AbortSignal, reason?: string): Promise<boolean> {
     const requestId = `p${++this.seq}`;
     return new Promise((resolve) => {
       const timer = setTimeout(() => this.answerPermission(requestId, false), ASK_TIMEOUT_MS);
       this.pending.set(requestId, (allow) => { clearTimeout(timer); resolve(allow); });
       signal?.addEventListener("abort", () => this.answerPermission(requestId, false), { once: true });
-      this.deps.emit({ type: "permission-request", requestId, taskId, toolName, summary: summarizeInput(toolName, input) });
+      this.deps.emit({ type: "permission-request", requestId, taskId, toolName, summary: `${reason ? `${reason}\n` : ""}${summarizeInput(toolName, input)}` });
     });
   }
 
@@ -149,16 +149,16 @@ export class AgentRunner {
     const chrome = settings.chrome.enabled && this.deps.chrome ? settings.chrome : null;
     const systemPrompt = buildSystemPrompt(project.instructions, autoRouting, chrome ? CHROME_GUIDE : "");
     // Trang đang mở trong trình duyệt của app (lấy từ kết quả công cụ) để áp quyền theo website.
-    let browserUrl: string | null = null;
+    const browser = newBrowserState();
     const decideTool = (toolName: string, toolInput: unknown) => (isBrowserTool(toolName)
-      ? (chrome ? decideBrowser(chrome, toolName, toolInput, browserUrl, level === "read") : { decision: "deny" as const, reason: "Điều khiển trình duyệt đang tắt (Cài đặt → Chrome)." })
+      ? (chrome ? decideBrowser(chrome, toolName, toolInput, browser, level === "read") : { decision: "deny" as const, reason: "Điều khiển trình duyệt đang tắt (Cài đặt → Chrome)." })
       : decide(level, toolName, toolInput, project.path, extraRead));
 
     const preToolUse: HookCallback = async (hookInput, _id, { signal }) => {
       if (hookInput.hook_event_name !== "PreToolUse") return {};
       const d = decideTool(hookInput.tool_name, hookInput.tool_input);
       let decision = d.decision;
-      if (decision === "ask") decision = (await this.askUser(taskId, hookInput.tool_name, hookInput.tool_input, signal)) ? "allow" : "deny";
+      if (decision === "ask") decision = (await this.askUser(taskId, hookInput.tool_name, hookInput.tool_input, signal, d.reason)) ? "allow" : "deny";
       const reason = decision === "deny" && d.decision === "ask" ? "Anh Trung không cho phép thao tác này." : d.reason;
       return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: decision, permissionDecisionReason: reason,
         ...(decision === "allow" && d.updatedInput ? { updatedInput: d.updatedInput } : {}) } };
@@ -167,14 +167,12 @@ export class AgentRunner {
     const canUseTool: CanUseTool = async (toolName, toolInput, { signal }) => {
       const d = decideTool(toolName, toolInput);
       if (d.decision === "deny") return { behavior: "deny", message: d.reason };
-      if (d.decision === "allow" || (await this.askUser(taskId, toolName, toolInput, signal))) return { behavior: "allow", updatedInput: d.updatedInput ?? toolInput };
+      if (d.decision === "allow" || (await this.askUser(taskId, toolName, toolInput, signal, d.reason))) return { behavior: "allow", updatedInput: d.updatedInput ?? toolInput };
       return { behavior: "deny", message: "Anh Trung không cho phép thao tác này." };
     };
 
     const postToolUse: HookCallback = async (hookInput) => {
-      if (hookInput.hook_event_name === "PostToolUse" && isBrowserTool(hookInput.tool_name)) {
-        browserUrl = pageUrlFrom(hookInput.tool_response) ?? browserUrl;
-      }
+      if (hookInput.hook_event_name === "PostToolUse") updateBrowserState(browser, hookInput.tool_name, hookInput.tool_response);
       return {};
     };
 

@@ -41,9 +41,10 @@ async function openBrowserProfile(db: HubDb, runner: AgentRunner, dataDir: strin
   const req = createRequire(require.resolve("@playwright/mcp/package.json"));
   const { chromium } = req("playwright-core") as typeof import("playwright-core");
   const { profileDir } = profilePaths(dataDir);
+  // Đặt cờ trước khi mở (mất vài giây) để không có việc nào chen vào dùng cùng hồ sơ.
+  browserWindowOpen = true;
   try {
     const ctx = await chromium.launchPersistentContext(profileDir, { channel: s.browser, headless: false, viewport: null });
-    browserWindowOpen = true;
     ctx.on("close", () => { browserWindowOpen = false; });
     const page = ctx.pages()[0] ?? await ctx.newPage();
     await page.goto("about:blank");

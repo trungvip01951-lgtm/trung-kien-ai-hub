@@ -45,3 +45,14 @@ Mục mới nối xuống cuối, theo mẫu chung (skill `quy-tac-lam-viec-chun
 - Sao lưu để hoàn tác: các tag v0.1.0, v0.1.1, v0.2.0, v0.2.1.
 - Khoá đã nhả: không giữ khoá nào.
 - Việc cần anh Trung: 1. Gửi số "Hôm nay" trong mục Chi phí API của app và số chi tiêu cùng ngày trong Console để đối chiếu. 2. Chuẩn bị 1 tệp Skill (.zip) và 1 thư mục dự án thật để nghiệm thu Mốc 3.
+
+## BÀN GIAO: Trung Kiên AI Hub · Claude-1 · 22/10/2026 21:42
+
+- Việc đã làm: Mốc 3 (bản 0.3.0: tải Skill lên, quét dự án PROJECT_INVENTORY, tiếp tục phiên Claude Code cũ, Hướng dẫn dự án, tự chia việc cho AI phụ, logo mới) và Mốc 2 (bản 0.4.0: điều khiển trình duyệt bằng Playwright MCP, hồ sơ riêng, quyền theo website). Chi tiết: `ho-so/NHAT-KY.md` hai mục cuối.
+- Làm tới đâu: nhánh `claude/intelligent-hopper-v2t54v`; CI đăng Release v0.3.0 và v0.4.0.
+- Nghiệm thu (mục XVI): 5 đọc Skills, 7 đọc CLAUDE.md ĐẠT trên cloud (SDK thật key giả); 24 import cấu hình/dự án cũ ĐẠT bằng test (thư mục mẫu); 11 mở và điều khiển trình duyệt, 12 đọc nội dung trang, 13 thao tác trang thử ĐẠT trên cloud (Chromium, trang thử, API giả); 6 thực thi Skill thật, 25 tiếp tục việc thật, và 11–13 trên Chrome thật CHƯA THỂ XÁC MINH (cần máy anh, key thật).
+- Còn lại: Mốc 4 (Windows, Excel/Word/PDF, sao lưu/khôi phục, hàng đợi, lịch). Rủi ro còn lại đã ghi: trang tự chuyển hướng chậm; tổng chi phí khi resume phiên cũ chưa đo bằng key thật.
+- Tệp kết quả: `apps/desktop/`; file cài ở Release v0.4.0.
+- Sao lưu để hoàn tác: tag v0.2.1 (trước Mốc 3), v0.3.0 (trước Mốc 2).
+- Khoá đã nhả: dòng Mốc 3/Mốc 2 trong `KHOA-VIEC.md`.
+- Việc cần anh Trung: 1. Bấm Kiểm tra cập nhật → lên 0.4.0. 2. Skills → Tải Skill lên 1 tệp .zip thật, giao 1 việc dùng Skill đó. 3. Dự án → Quét thư mục chứa dự án cũ, Thêm vào app, mở "Phiên Claude Code cũ" hoặc giao việc tiếp. 4. Chrome → thêm website (ví dụ web của anh, quyền Hỏi từng thao tác), bấm Mở trình duyệt để đăng nhập nếu cần, rồi giao 1 việc đọc trang.

@@ -147,7 +147,7 @@ test("lệnh ngoài phải hỏi: anh Trung từ chối thì công cụ bị ch�
   const r = await t.runner.start(input(t.project.id));
   await new Promise((res) => setImmediate(res));
   const req = t.events.find((e) => e.type === "permission-request");
-  assert.ok(req && req.type === "permission-request" && req.summary === "del *.*");
+  assert.ok(req && req.type === "permission-request" && req.summary.endsWith("\ndel *.*"));
   t.runner.answerPermission(req.requestId, false);
   await r.done;
   assert.equal((decision as { hookSpecificOutput: { permissionDecision: string } }).hookSpecificOutput.permissionDecision, "deny");
@@ -302,7 +302,7 @@ test("trình duyệt: bật thì nạp máy chủ MCP và áp quyền theo websi
       decisions.push(`${tool_name.replace("mcp__chrome__", "")}:${(r as { hookSpecificOutput: { permissionDecision: string } }).hookSpecificOutput.permissionDecision}`);
     };
     await ask("mcp__chrome__browser_navigate", { url: "https://mau-a.vn/" });
-    await post({ hook_event_name: "PostToolUse", tool_name: "mcp__chrome__browser_navigate", tool_response: [{ type: "text", text: "- Page URL: https://mau-a.vn/\n" }] } as never, undefined, { signal: new AbortController().signal });
+    await post({ hook_event_name: "PostToolUse", tool_name: "mcp__chrome__browser_navigate", tool_response: [{ type: "text", text: "### Page\n- Page URL: https://mau-a.vn/\n### Snapshot\n- textbox \"Tìm\" [ref=e1]" }] } as never, undefined, { signal: new AbortController().signal });
     await ask("mcp__chrome__browser_type", { element: "ô tìm", target: "e1", text: "máy bơm" });
     await ask("mcp__chrome__browser_cookie_list", {});
     yield result(0.001);

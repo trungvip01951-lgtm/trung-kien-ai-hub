@@ -23,3 +23,12 @@
 - Chuyện gì xảy ra: thêm cột `session_total_ok` vào bảng conversations; tệp `hub.db` của lần chạy trước không có cột này, câu lệnh lúc khởi động lỗi, cửa sổ không hiện và không báo gì.
 - Nguyên nhân: `CREATE TABLE IF NOT EXISTS` không thêm cột cho bảng đã có; lỗi khởi động không được bắt.
 - Cách tránh từ nay: mọi thay đổi cấu trúc dữ liệu thêm một bước trong `HubDb.migrate()` (đánh số bằng `PRAGMA user_version`, chỉ thêm không xoá) kèm test mở tệp bản cũ; lỗi khởi động hiện hộp thông báo.
+
+## 4. Tin chữ do trang web quyết định để xét quyền — 22/10/2026 — Claude-1
+- Chuyện gì xảy ra: bản nháp Mốc 2 lấy dòng "Page URL:" cuối cùng trong kết quả công cụ và xét "đăng/lưu/gửi" theo lời mô tả của model; rà soát độc lập chỉ ra trang lạ ghi "Page URL: <site được phép>" vào tiêu đề là được thao tác không hỏi. Chưa phát hành, đã sửa trước bản 0.4.0.
+- Nguyên nhân: coi mọi chữ trong kết quả công cụ là đáng tin; không phân biệt phần do công cụ viết và phần do trang viết.
+- Cách tránh từ nay: dữ liệu dùng để xét quyền chỉ lấy từ phần công cụ tự viết, ở vị trí cố định; không rõ thì coi là chưa biết và hỏi. Có test giả trang lạ.
+
+## 5. pkill -f tự giết chính lệnh đang chạy — 22/10/2026 — Claude-1
+- Chuyện gì xảy ra: `pkill -f "node --test"` trong cùng một lệnh với phần sửa tệp làm lệnh bị dừng (mã 144), phần sửa phía sau không chạy, test treo.
+- Cách tránh từ nay: không gộp `pkill -f <mẫu>` với lệnh có chứa chính mẫu đó; dừng tiến trình ở lệnh riêng.

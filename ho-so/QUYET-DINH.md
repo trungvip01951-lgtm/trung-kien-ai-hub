@@ -54,3 +54,11 @@ Cách hiểu đã làm: logo mới do Claude thiết kế (anh chưa gửi ảnh
 > app cps thể tự đổi mô hình AI và mức nỗ lực mỗi AI trong cùng 1 công việc để phù hợp việc nó lmà nhé cái này là tự động đảm bảo cách làm tiết kiệm nhưng vẫn phải chính xác nhất nhé
 
 Cách làm: tự chia việc cho 3 AI phụ (Haiku 5.5 việc cơ học; Sonnet 5.5 suy nghĩ vừa; Opus 5.5 suy nghĩ cao), bật mặc định, tắt được trong Cài đặt.
+
+## 22/10/2026 ~21:40 — phiên Claude Code (web), hỏi giữa chừng
+> Điều khiển chome ở pc của a làm đc như pugin cài cho chome của claude đấy đúng ko e
+
+## 22/10/2026 ~21:45 — phiên Claude Code (web), trả lời
+> k cần đâu tự đăng nhập tk web vào chome có sẵn cũng đc. e làm song chưa khi nào song thì bảo a cập nhật nhé, còn làm cứ làm k cần báo cáo nhiều đâu
+
+Nghĩa: giữ trình duyệt hồ sơ riêng của app (anh tự đăng nhập các website vào đó), không làm chế độ điều khiển Chrome chính. Báo ngắn, chỉ báo khi xong để anh cập nhật.
