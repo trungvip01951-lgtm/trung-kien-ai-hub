@@ -20,3 +20,7 @@ Mục mới nối xuống cuối. Mỗi mục: `## dd/mm/yyyy hh:mm — <tên AI
 - Rà soát độc lập (AI phụ Opus) tìm 9 lỗi; đã sửa: đọc ngoài dự án và WebFetch/WebSearch phải hỏi; sửa `.claude/`, `.mcp.json`, `.git/`, `CLAUDE.md`, `.env` phải hỏi; giải symlink; AI phụ không chạy nền, môi trường tách riêng phải hỏi/chặn; hỏi quyền quá 30 phút coi là từ chối; chi phí khi tiếp tục hội thoại sau việc dở dang tính dư (x1,2); token cuối lấy từ message_delta; kiểm key tính là việc đang chạy. Còn lại có ghi chú: việc kéo qua 0h tính vào ngày bắt đầu.
 - Kiểm: 24/24 test; SDK thật với key giả trên cloud (môi trường đã lọc) báo "Invalid API key", chi phí 0; bản đóng gói Linux 6/6 kiểm tra khói; giao diện mở được, 0 lỗi console. Sổ lỗi mục 1–3.
 - CI: thêm `npm test`, đăng GitHub Release khi phiên bản không có hậu tố `-` và chưa có tag.
+
+## 22/10/2026 17:48 — Claude-1
+- Bản 0.1.1 theo yêu cầu anh Trung (nút cập nhật): ô cập nhật luôn hiện cuối thanh bên (phiên bản đang dùng, nút "Kiểm tra cập nhật", tiến độ tải, nút "Cập nhật ngay" cài im lặng rồi tự mở lại). Không cho cập nhật khi đang chạy việc. Tệp: `src/shared/contract.ts` (checkUpdate), `src/preload.ts`, `src/main/updater.ts`, `src/main/index.ts`, `src/renderer/App.tsx`, `styles.css`.
+- Kiểm: 24/24 test; giao diện bấm "Kiểm tra cập nhật" ở bản chạy thử hiện đúng thông báo, 0 lỗi.

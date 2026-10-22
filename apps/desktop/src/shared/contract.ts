@@ -94,7 +94,8 @@ export interface HubApi {
   answerPermission(requestId: string, allow: boolean): Promise<void>;
   runningTaskId(): Promise<number | null>;
 
-  installUpdate(): Promise<void>;
+  checkUpdate(): Promise<void>;     // kiểm tra ngay; có bản mới thì tự tải, xong phát sự kiện "ready"
+  installUpdate(): Promise<void>;   // khởi động lại và cài bản đã tải
   onEvent(cb: (e: HubEvent) => void): () => void;
 }
 

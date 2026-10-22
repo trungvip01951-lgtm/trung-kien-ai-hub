@@ -69,18 +69,7 @@ export function App() {
             </button>
           ))}
         </div>
-        {update && (update.status === "downloading" || update.status === "ready" || update.status === "available") && (
-          <div className="update">
-            {update.status === "ready" ? (
-              <>
-                <div>Đã tải xong bản {update.version}</div>
-                <button className="primary" onClick={() => window.hub.installUpdate()}>Khởi động lại để cập nhật</button>
-              </>
-            ) : (
-              <div>Đang tải bản {update.version ?? "mới"} ({Math.round(update.percent ?? 0)}%)</div>
-            )}
-          </div>
-        )}
+        <UpdateBox update={update} onCheck={() => { setUpdate({ type: "update", status: "checking" }); void window.hub.checkUpdate(); }} />
       </nav>
       <main className="content">
         <div className="pane" hidden={nav !== "chat"}>
@@ -93,6 +82,34 @@ export function App() {
         {nav === "settings" && <SettingsPage settings={settings} onSettings={setSettings} onKeyChanged={() => setKeyTick((t) => t + 1)} />}
         {todo && <Placeholder title={todo.label} />}
       </main>
+    </div>
+  );
+}
+
+// Ô cập nhật luôn hiện ở cuối thanh bên: có bản mới đã tải xong thì một nút "Cập nhật ngay".
+function UpdateBox({ update, onCheck }: { update: UpdateEvent | null; onCheck: () => void }) {
+  const [version, setVersion] = useState("");
+  useEffect(() => { window.hub.appVersion().then(setVersion).catch(() => {}); }, []);
+  const s = update?.status;
+  return (
+    <div className="update">
+      <div>Phiên bản {version}</div>
+      {s === "ready" ? (
+        <>
+          <div>Có bản mới {update?.version}</div>
+          <button className="primary" onClick={() => void window.hub.installUpdate()}>Cập nhật ngay</button>
+        </>
+      ) : s === "available" || s === "downloading" ? (
+        <div>Đang tải bản {update?.version ?? "mới"} ({Math.round(update?.percent ?? 0)}%)</div>
+      ) : s === "checking" ? (
+        <div>Đang kiểm tra…</div>
+      ) : (
+        <>
+          {s === "none" && <div>Đang dùng bản mới nhất</div>}
+          {s === "error" && <div className="update-error">{update?.message}</div>}
+          <button onClick={onCheck}>Kiểm tra cập nhật</button>
+        </>
+      )}
     </div>
   );
 }

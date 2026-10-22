@@ -22,6 +22,7 @@ const api: HubApi = {
   stopTask: call("stopTask") as HubApi["stopTask"],
   answerPermission: call("answerPermission") as HubApi["answerPermission"],
   runningTaskId: call("runningTaskId") as HubApi["runningTaskId"],
+  checkUpdate: call("checkUpdate") as HubApi["checkUpdate"],
   installUpdate: call("installUpdate") as HubApi["installUpdate"],
   onEvent(cb) {
     const h = (_e: unknown, ev: HubEvent) => cb(ev);

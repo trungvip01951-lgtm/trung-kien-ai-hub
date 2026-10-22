@@ -48,6 +48,7 @@ textarea { resize: vertical; width: 100%; }
 .nav-item.active { background: var(--accent); color: var(--accent-text); }
 .nav-item.todo:not(.active) { opacity: .5; }
 .update { border-top: 1px solid var(--border); padding-top: 10px; font-size: 12.5px; display: flex; flex-direction: column; gap: 6px; }
+.update-error { color: var(--danger, #c0392b); }
 .content { flex: 1; min-width: 0; height: 100%; overflow: hidden; display: flex; flex-direction: column; }
 .pane { flex: 1; min-height: 0; } .pane[hidden] { display: none; }
 .page { padding: 24px 28px; overflow-y: auto; height: 100%; }

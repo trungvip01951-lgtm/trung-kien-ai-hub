@@ -9,7 +9,7 @@ import { HubDb } from "./db";
 import { KeyStore } from "./keystore";
 import { claudeExecutablePath } from "./sdk-path";
 import { runSmokeTest } from "./smoke";
-import { installUpdate, startUpdater } from "./updater";
+import { checkUpdateNow, installUpdate, startUpdater } from "./updater";
 
 const smoke = process.argv.includes("--smoke-test");
 const outArg = process.argv.find((a) => a.startsWith("--smoke-out="));
@@ -54,7 +54,14 @@ function registerIpc(db: HubDb, keys: KeyStore, runner: AgentRunner) {
   h("stopTask", (id: number) => runner.stop(Number(id)));
   h("answerPermission", (id: string, allow: boolean) => runner.answerPermission(String(id), allow === true));
   h("runningTaskId", () => runner.runningTaskId());
-  h("installUpdate", () => installUpdate());
+  h("checkUpdate", () => checkUpdateNow());
+  h("installUpdate", () => {
+    if (runner.runningTaskId() !== null) {
+      emit({ type: "update", status: "error", message: "Đang chạy một việc. Dừng hoặc chờ xong rồi bấm cập nhật." });
+      return;
+    }
+    installUpdate();
+  });
 }
 
 app.whenReady().then(async () => {
