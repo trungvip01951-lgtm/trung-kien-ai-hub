@@ -23,3 +23,14 @@ Mục mới nối xuống cuối, theo mẫu chung (skill `quy-tac-lam-viec-chun
 - Sao lưu để hoàn tác: commit trước Mốc 0 là da0f355.
 - Khoá đã nhả: toàn bộ repo (dòng Mốc 0 trong `KHOA-VIEC.md`).
 - Việc cần anh Trung: 1. Tải file cài từ Artifacts, cài trên máy, báo mở được cửa sổ "Trung Kiên AI Hub" hay không. 2. Tổ chức Console nhận tín dụng: không gắn thẻ, không bật auto-reload.
+
+## BÀN GIAO: Trung Kiên AI Hub · Claude-1 · 22/10/2026 17:41
+
+- Việc đã làm: Mốc 1, bản 0.1.0: chat agent bằng API key, hạn mức chi phí, phân quyền, lịch sử, giao diện 13 mục, tự cập nhật. Chi tiết: `ho-so/NHAT-KY.md` mục 22/10/2026 17:41.
+- Làm tới đâu: commit bf4ec86, CI https://github.com/trungvip01951-lgtm/trung-kien-ai-hub/actions/runs/39764432530 xanh (24 test, build, kiểm tra khói bản chưa cài và bản đã cài); Release https://github.com/trungvip01951-lgtm/trung-kien-ai-hub/releases/tag/v0.1.0.
+- Nghiệm thu (tiêu chí mục XVI): 1 cài được ĐẠT trên máy CI; 2 chat với Claude API, 3 tính phí theo API key, 19 theo dõi chi phí, 20 dừng khi chạm hạn mức: ĐẠT trên agent giả + SDK thật với key giả, CHƯA THỂ XÁC MINH với key thật (chờ anh); 4 mở dự án, 7 đọc CLAUDE.md, 5 đọc Skills: SDK nạp 19–92 skills trên cloud, CHƯA THỂ XÁC MINH trên máy anh; 8 lưu lịch sử, 9 đóng/mở không mất dữ liệu: ĐẠT bằng test; 10 tiếp tục phiên: ĐẠT bằng test (resume), chưa thử thật; 22 phân quyền: ĐẠT bằng test.
+- Còn lại: Mốc 2 (Chrome). Lỗi đã biết: việc kéo qua 0h tính vào ngày bắt đầu; actions v4 chạy Node 20 (cảnh báo).
+- Tệp kết quả: `apps/desktop/`; file cài ở Release v0.1.0.
+- Sao lưu để hoàn tác: commit trước Mốc 1 là 263aab7.
+- Khoá đã nhả: toàn bộ repo (dòng Mốc 1 trong `KHOA-VIEC.md`).
+- Việc cần anh Trung: 1. Cài bản 0.1.0 (bản 0.0.1 không tự cập nhật được). 2. Nhập API key, bấm Kiểm tra key. 3. Thêm một dự án, giao một việc nhỏ, báo kết quả.
