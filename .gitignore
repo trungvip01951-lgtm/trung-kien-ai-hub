@@ -1,0 +1,29 @@
+# Bí mật và cấu hình thật: không bao giờ đưa lên git
+.env
+.env.*
+!.env.example
+*.local.*
+secrets/
+*.pem
+*.key
+
+# Dữ liệu thật (tin nhắn, khách hàng, số điện thoại): chỉ giữ dữ liệu giả trong data/mau/
+data/*
+!data/mau/
+
+# Log, tệp xuất, tệp tạm
+logs/
+*.log
+exports/
+tmp/
+
+# Hệ điều hành
+.DS_Store
+Thumbs.db
+
+# Thư viện cài về và bản dựng
+node_modules/
+__pycache__/
+.venv/
+dist/
+build/
