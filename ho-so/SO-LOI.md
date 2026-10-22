@@ -32,3 +32,12 @@
 ## 5. pkill -f tự giết chính lệnh đang chạy — 22/10/2026 — Claude-1
 - Chuyện gì xảy ra: `pkill -f "node --test"` trong cùng một lệnh với phần sửa tệp làm lệnh bị dừng (mã 144), phần sửa phía sau không chạy, test treo.
 - Cách tránh từ nay: không gộp `pkill -f <mẫu>` với lệnh có chứa chính mẫu đó; dừng tiến trình ở lệnh riêng.
+
+## 6. Kiểm thử phụ thuộc cổng cố định bị chính máy chủ thử chiếm — 22/10/2026 — Claude-1
+- Chuyện gì xảy ra: kiểm thử đăng nhập OAuth dùng cổng 8765; máy chủ tĩnh tôi mở để thử giao diện cũng ở 8765 và không tắt, `npm test` treo, AI rà soát cũng bị treo theo.
+- Nguyên nhân: cổng cố định trong kiểm thử; máy chủ thử mở nền không dọn; máy chủ giả không đóng khi kiểm thử lỗi.
+- Cách tránh từ nay: kiểm thử dùng cổng 0 (hệ điều hành chọn); máy chủ giả đóng trong `t.after`; tắt máy chủ thử ngay sau khi dùng.
+
+## 7. "Đồng ý luôn" theo tên công cụ quá rộng — 22/10/2026 — Claude-1
+- Chuyện gì xảy ra: bản nháp 0.5.0 cho "Đồng ý luôn" theo tên công cụ: đồng ý `npm test` là cho mọi lệnh Bash, đồng ý mở Notepad là cho mở mọi chương trình. Rà soát độc lập phát hiện, chưa phát hành.
+- Cách tránh từ nay: quyền "luôn cho" phải hẹp đúng thứ anh nhìn thấy trong hộp hỏi (lệnh, thư mục, tên miền, cửa sổ, chương trình + tham số); thao tác nguy hiểm không có nút này. Có test.

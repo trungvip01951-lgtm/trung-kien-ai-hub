@@ -35,8 +35,8 @@ Yêu cầu gốc: `docs/YEU-CAU-GOC.md` (nguyên văn của anh Trung, không s�
 | 1 | API key (DPAPI), chọn dự án, chat streaming qua Agent SDK, hiện bước công cụ, lịch sử SQLite/FTS5, dừng/tiếp tục, token và chi phí, hạn mức công việc/ngày/tháng có chặn cứng | 1–9, 17–20 | Bản 0.2.1: anh Trung xác nhận chạy được trên máy với API key thật (22/10/2026 20:53); chưa đối chiếu chi phí với Console |
 | 2 | Chrome: hồ sơ riêng, quyền theo website, xác nhận thao tác rủi ro | 11–13 | Bản 0.4.0 (22/10/2026): đạt trên cloud (Chromium, trang thử, máy chủ API giả); chờ anh nghiệm thu trên Chrome thật |
 | 3 | Kiểm kê và nhập dự án cũ trên máy anh (chỉ đọc), thử tiếp tục 1 việc thật mỗi nhóm | 24–25 | Bản 0.3.0 (22/10/2026): đạt trên cloud (test + SDK thật key giả); chờ anh nghiệm thu với Skill và dự án thật |
-| 4 | Windows, Excel/Word/PDF, sao lưu/khôi phục, hàng đợi, lịch | 14–16, 21–23 | chưa làm |
-| 5 | Module nghiệp vụ (Search Console, Google Ads API, catalogue, Zalo/AI Desk) khi Skills chưa đủ | — | chưa làm |
+| 4 | Windows, Excel/Word/PDF, sao lưu/khôi phục, hàng đợi, lịch | 14–16, 21–23 | Bản 0.5.0 (22/10/2026): đạt bằng test trên cloud + Windows thật trên CI; chờ anh nghiệm thu |
+| 5 | Module nghiệp vụ (Search Console, Google Ads API, catalogue, Zalo/AI Desk) khi Skills chưa đủ | — | Bản 0.5.0: 10 AI chuyên môn + bộ nhớ dài hạn; SEO/Ads qua Windsor.ai, catalogue qua Skills + công cụ tài liệu. Zalo chưa làm: cần anh quyết (xem BAN-GIAO) |
 
 ## Việc anh Trung tự làm (không cần code)
 
