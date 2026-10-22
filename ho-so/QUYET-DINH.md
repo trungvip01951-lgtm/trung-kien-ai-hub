@@ -82,3 +82,8 @@ Cách hiểu đã làm: (1) chạy nhiều hội thoại cùng lúc; (2) mức q
 > và làm hết các mốc còn lại cho a nhé song báo a cập nhật
 
 Nghĩa: làm tiếp Mốc 4 và Mốc 5 không chờ duyệt giữa các mốc (thay quyết định "xong mốc anh dùng thử rồi mới sang mốc sau"); xong thì báo anh cập nhật.
+
+## 22/10/2026 ~23:00 — phiên Claude Code (web)
+> K cầm báo cáo gì cứ làm song thì báo nhé em
+
+Nghĩa: không báo tiến độ giữa chừng; chỉ báo khi xong để anh cập nhật.
