@@ -152,7 +152,7 @@ test("môi trường agent bỏ đăng nhập gói Max và nhà cung cấp khác
   const env = agentEnv("sk-ant-api03-gia", "1");
   assert.equal(env.CLAUDE_CODE_REMOTE, undefined);
   assert.equal(env.CLAUDE_SESSION_INGRESS_TOKEN_FILE, undefined);
-  assert.ok(env.PATH);
+  assert.ok(Object.keys(env).some((k) => k.toUpperCase() === "PATH")); // Windows dùng "Path"
   assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, undefined);
   assert.equal(env.ANTHROPIC_BASE_URL, undefined);
   assert.equal(env.ANTHROPIC_API_KEY, "sk-ant-api03-gia");
