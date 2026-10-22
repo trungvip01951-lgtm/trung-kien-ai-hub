@@ -31,3 +31,13 @@ Ghi chú: (1) Mốc 0 cài và mở được trên máy anh (ảnh chụp cửa 
 > Anh làm tiếp: cả 3 việc đã song rồi chạy đc rồi bây giờ làm ở đâu và làm thêm những gì nói a nghe trước xem
 
 Ghi chú: anh Trung báo đã làm xong 3 việc (tự cập nhật lên 0.2.1, thêm và kiểm tra key trong workspace, giao việc thử) và app chạy được. Chưa có số liệu đối chiếu chi phí app với Console.
+
+## 22/10/2026 20:58 — phiên Claude Code (web), trả lời 3 câu hỏi về phần tiếp theo
+> 1. làm 1 trước song làm 2 luôn cho a
+> 2. 2
+> 3. cho a chỗ up skil để a up skill vào như up skill ở claude ấy
+
+Nghĩa theo câu hỏi đã hỏi:
+1. Làm Mốc 3 (nhập dự án và Skills cũ) trước, xong làm luôn Mốc 2 (điều khiển Chrome), không cần chờ duyệt giữa hai mốc.
+2. Làm trong cuộc trò chuyện mới; phiên mới đọc bàn giao trong repo.
+3. Có màn hình tải Skill lên (giống tải Skill trên claude.ai) để anh tự thêm Skill; ngoài ra app chỉ quét các thư mục anh chọn (không tự dò toàn máy).

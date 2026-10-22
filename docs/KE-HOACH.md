@@ -39,3 +39,18 @@ Yêu cầu gốc: `docs/YEU-CAU-GOC.md` (nguyên văn của anh Trung, không s�
 
 - Tổ chức Console nhận tín dụng: không gắn thẻ, không bật auto-reload, để hết tín dụng thì API tự ngừng.
 - File .exe chưa ký số: Windows sẽ cảnh báo khi cài, chọn "Thông tin thêm" → "Vẫn chạy".
+
+## Phạm vi Mốc 3 và Mốc 2 (anh Trung chốt 22/10/2026, xem ho-so/QUYET-DINH.md)
+
+Làm Mốc 3 rồi làm luôn Mốc 2, mỗi mốc ra một bản phát hành để anh cập nhật bằng nút trong app.
+
+**Mốc 3 — Nhập dự án và Skills (bản 0.3.x)**
+- Mục **Skills** trong app: nút **Tải Skill lên** giống claude.ai: nhận tệp `.zip` (một hoặc nhiều thư mục có `SKILL.md`) hoặc chọn thư mục có `SKILL.md`. Kiểm `SKILL.md` có phần đầu `name`/`description`, báo trùng tên, giữ bản cũ để khôi phục, bật/tắt, xoá. Không chạy script nào khi nhập.
+- Nơi lưu Skills của app: thư mục dữ liệu app (không ghi vào `~/.claude` của Claude Code). Cách nạp cho agent cần kiểm tài liệu Agent SDK trước (gợi ý: tuỳ chọn `plugins` nạp thư mục cục bộ có `skills/`); đo bằng `skills` trong tin nhắn init.
+- Mục **Dự án**: nút **Quét thư mục** chỉ đọc các thư mục anh chọn: tìm `CLAUDE.md`, `.claude/` (skills, agents, settings), `.mcp.json`, sổ bàn giao/nhật ký/TODO, git. Lập bảng PROJECT_INVENTORY (yêu cầu gốc mục II), cho thêm dự án vào app một chạm. Không sửa, không chép dữ liệu dự án; dữ liệu Thịnh Vượng không đưa vào.
+- Nghiệm thu: anh tải 1 Skill thật lên, agent liệt kê được Skill đó và dùng được trong một việc; quét 1 thư mục dự án thật, mở dự án và tiếp tục 1 việc cũ.
+
+**Mốc 2 — Điều khiển Chrome (bản 0.4.x)**
+- Playwright MCP (kiểm phiên bản và tài liệu chính thức trước khi ghim), hồ sơ trình duyệt riêng trong thư mục dữ liệu app, không dùng Chrome chính.
+- Danh sách website được phép; thao tác đăng/lưu/gửi/sửa tài khoản luôn hỏi anh. Không vượt CAPTCHA, không lấy cookie/token.
+- Kiểm trên cloud bằng Chromium có sẵn với trang thử; nghiệm thu thật trên máy anh.

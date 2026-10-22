@@ -34,3 +34,14 @@ Mục mới nối xuống cuối, theo mẫu chung (skill `quy-tac-lam-viec-chun
 - Sao lưu để hoàn tác: commit trước Mốc 1 là 263aab7.
 - Khoá đã nhả: toàn bộ repo (dòng Mốc 1 trong `KHOA-VIEC.md`).
 - Việc cần anh Trung: 1. Cài bản 0.1.0 (bản 0.0.1 không tự cập nhật được). 2. Nhập API key, bấm Kiểm tra key. 3. Thêm một dự án, giao một việc nhỏ, báo kết quả.
+
+## BÀN GIAO: Trung Kiên AI Hub · Claude-1 · 22/10/2026 20:58
+
+- Việc đã làm: Mốc 1 xong tới bản 0.2.1 (nhiều API key tự chuyển, nút cập nhật, báo lỗi key chưa gắn workspace). Anh Trung xác nhận: tự cập nhật chạy, key trong workspace kiểm tra đạt, giao việc thử chạy được.
+- Làm tới đâu: nhánh `claude/intelligent-hopper-v2t54v`, Release mới nhất v0.2.1, CI xanh, 32/32 test.
+- Nghiệm thu: Mốc 1 ĐẠT theo xác nhận của anh Trung; đối chiếu chi phí app với Console CHƯA THỂ XÁC MINH (chưa có số).
+- Còn lại: làm Mốc 3 rồi Mốc 2 theo `docs/KE-HOACH.md` mục "Phạm vi Mốc 3 và Mốc 2", trong cuộc trò chuyện mới (quyết định cùng giờ). Phiên mới: đọc CLAUDE.md theo thứ tự, nhận khoá trong KHOA-VIEC.md, phiên bản đang làm dùng hậu tố `-dev`.
+- Tệp kết quả: `apps/desktop/`.
+- Sao lưu để hoàn tác: các tag v0.1.0, v0.1.1, v0.2.0, v0.2.1.
+- Khoá đã nhả: không giữ khoá nào.
+- Việc cần anh Trung: 1. Gửi số "Hôm nay" trong mục Chi phí API của app và số chi tiêu cùng ngày trong Console để đối chiếu. 2. Chuẩn bị 1 tệp Skill (.zip) và 1 thư mục dự án thật để nghiệm thu Mốc 3.
