@@ -26,3 +26,8 @@ Ghi chú: (1) Mốc 0 cài và mở được trên máy anh (ảnh chụp cửa 
 
 ## 22/10/2026 19:46 — phiên Claude Code (web)
 > Cho a nhiều chỗ nhập api key nhé hết cái này tự chuyển cái khác ưu tiên dùng theo thứ tự nhé em
+
+## 22/10/2026 20:53 — phiên Claude Code (web)
+> Anh làm tiếp: cả 3 việc đã song rồi chạy đc rồi bây giờ làm ở đâu và làm thêm những gì nói a nghe trước xem
+
+Ghi chú: anh Trung báo đã làm xong 3 việc (tự cập nhật lên 0.2.1, thêm và kiểm tra key trong workspace, giao việc thử) và app chạy được. Chưa có số liệu đối chiếu chi phí app với Console.
