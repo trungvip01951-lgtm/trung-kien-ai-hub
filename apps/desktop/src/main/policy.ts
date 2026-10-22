@@ -90,6 +90,8 @@ export function summarizeInput(toolName: string, input: unknown): string {
   if (typeof i.command === "string") return i.command;
   if (typeof i.url === "string") return `${i.url}${typeof i.prompt === "string" ? `\n${i.prompt}` : ""}`;
   if (typeof i.query === "string") return i.query;
+  // Công cụ trình duyệt: mô tả phần tử sẽ bấm/gõ, kèm chữ sẽ gõ.
+  if (typeof i.element === "string") return `${i.element}${typeof i.text === "string" ? `\nGõ: ${i.text}` : ""}${i.submit ? "\n(và gửi đi)" : ""}`;
   const target = fileArg(input);
   if (target) return target;
   const s = JSON.stringify(input, null, 2) ?? "";

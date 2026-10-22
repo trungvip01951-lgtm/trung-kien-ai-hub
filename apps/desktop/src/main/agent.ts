@@ -9,6 +9,7 @@ import { estimateCostUsd, type TokenUsage } from "./pricing";
 import { keyErrorReason, type KeyEntry } from "./keys";
 import { checkSettings, settingsFiles } from "./settings-guard";
 import { buildSystemPrompt, ROUTED_AGENTS } from "./routing";
+import { CHROME_GUIDE, CHROME_SERVER, chromeServerConfig, decideBrowser, isBrowserTool, pageUrlFrom, type ChromePaths } from "./chrome";
 
 export type QueryFn = (args: { prompt: string; options?: Options }) => Query;
 
@@ -21,6 +22,8 @@ export interface AgentDeps {
   claudePath: string;
   // Kho Skills của app (nạp cho agent như plugin cục bộ); agent được đọc tệp trong đó không cần hỏi.
   skills?: { pluginPath(): string | null; readableRoot(): string };
+  // Điều khiển trình duyệt (Playwright MCP); không có thì không nạp công cụ trình duyệt.
+  chrome?: ChromePaths;
   appVersion: string;
   now?: () => Date;
 }
@@ -139,14 +142,21 @@ export class AgentRunner {
 
     const taskId = db.createTask({ conversationId: conv.id, prompt, model: input.model, effort: input.effort, permission: input.permission, allowanceUsd: u.allowedUsd });
     const level = input.permission;
-    const extraRead = this.deps.skills ? [this.deps.skills.readableRoot()] : [];
+    const extraRead = [...(this.deps.skills ? [this.deps.skills.readableRoot()] : []), ...(this.deps.chrome ? [this.deps.chrome.outputDir] : [])];
     const pluginPath = this.deps.skills?.pluginPath() ?? null;
-    const autoRouting = db.getSettings().autoRouting;
-    const systemPrompt = buildSystemPrompt(project.instructions, autoRouting);
+    const settings = db.getSettings();
+    const autoRouting = settings.autoRouting;
+    const chrome = settings.chrome.enabled && this.deps.chrome ? settings.chrome : null;
+    const systemPrompt = buildSystemPrompt(project.instructions, autoRouting, chrome ? CHROME_GUIDE : "");
+    // Trang đang mở trong trình duyệt của app (lấy từ kết quả công cụ) để áp quyền theo website.
+    let browserUrl: string | null = null;
+    const decideTool = (toolName: string, toolInput: unknown) => (isBrowserTool(toolName)
+      ? (chrome ? decideBrowser(chrome, toolName, toolInput, browserUrl, level === "read") : { decision: "deny" as const, reason: "Điều khiển trình duyệt đang tắt (Cài đặt → Chrome)." })
+      : decide(level, toolName, toolInput, project.path, extraRead));
 
     const preToolUse: HookCallback = async (hookInput, _id, { signal }) => {
       if (hookInput.hook_event_name !== "PreToolUse") return {};
-      const d = decide(level, hookInput.tool_name, hookInput.tool_input, project.path, extraRead);
+      const d = decideTool(hookInput.tool_name, hookInput.tool_input);
       let decision = d.decision;
       if (decision === "ask") decision = (await this.askUser(taskId, hookInput.tool_name, hookInput.tool_input, signal)) ? "allow" : "deny";
       const reason = decision === "deny" && d.decision === "ask" ? "Anh Trung không cho phép thao tác này." : d.reason;
@@ -155,10 +165,17 @@ export class AgentRunner {
     };
     // Lưới an toàn: nếu cấu hình khác vẫn khiến SDK hỏi quyền, cũng hỏi anh Trung.
     const canUseTool: CanUseTool = async (toolName, toolInput, { signal }) => {
-      const d = decide(level, toolName, toolInput, project.path, extraRead);
+      const d = decideTool(toolName, toolInput);
       if (d.decision === "deny") return { behavior: "deny", message: d.reason };
       if (d.decision === "allow" || (await this.askUser(taskId, toolName, toolInput, signal))) return { behavior: "allow", updatedInput: d.updatedInput ?? toolInput };
       return { behavior: "deny", message: "Anh Trung không cho phép thao tác này." };
+    };
+
+    const postToolUse: HookCallback = async (hookInput) => {
+      if (hookInput.hook_event_name === "PostToolUse" && isBrowserTool(hookInput.tool_name)) {
+        browserUrl = pageUrlFrom(hookInput.tool_response) ?? browserUrl;
+      }
+      return {};
     };
 
     const resume = conv.sessionId;
@@ -173,7 +190,8 @@ export class AgentRunner {
       abortController: abort,
       env: agentEnv(apiKey, this.deps.appVersion),
       pathToClaudeCodeExecutable: this.deps.claudePath,
-      hooks: { PreToolUse: [{ hooks: [preToolUse], timeout: HOOK_TIMEOUT_S }] },
+      hooks: { PreToolUse: [{ hooks: [preToolUse], timeout: HOOK_TIMEOUT_S }], PostToolUse: [{ hooks: [postToolUse] }] },
+      ...(chrome ? { mcpServers: { [CHROME_SERVER]: chromeServerConfig(chrome, this.deps.chrome!) } } : {}),
       canUseTool,
       ...(pluginPath ? { plugins: [{ type: "local" as const, path: pluginPath, skipMcpDiscovery: true }] } : {}),
       ...(autoRouting ? { agents: ROUTED_AGENTS } : {}),

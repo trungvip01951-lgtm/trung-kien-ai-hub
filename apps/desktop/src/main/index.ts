@@ -10,7 +10,9 @@ import { KeyRing } from "./keyring";
 import { isThinhVuong, scanFolder } from "./inventory";
 import { isInside } from "./policy";
 import { SkillStore } from "./skills";
-import { claudeExecutablePath } from "./sdk-path";
+import { claudeExecutablePath, playwrightMcpCliPath } from "./sdk-path";
+import { profilePaths } from "./chrome";
+import { createRequire } from "node:module";
 import { runSmokeTest } from "./smoke";
 import { checkUpdateNow, installUpdate, startUpdater } from "./updater";
 
@@ -28,6 +30,31 @@ async function oldSessions(dir: string, limit = 50): Promise<OldSession[]> {
     lastModified: new Date(s.lastModified).toISOString(), sizeBytes: s.fileSize ?? null, gitBranch: s.gitBranch ?? null, imported: false }));
 }
 
+// Cửa sổ trình duyệt mở bằng hồ sơ riêng của app để anh Trung tự đăng nhập. Hồ sơ chỉ một trình duyệt dùng được
+// một lúc, nên khi cửa sổ này mở thì không chạy việc, và ngược lại.
+let browserWindowOpen = false;
+async function openBrowserProfile(db: HubDb, runner: AgentRunner, dataDir: string): Promise<{ ok: boolean; message: string }> {
+  if (browserWindowOpen) return { ok: false, message: "Trình duyệt của app đang mở." };
+  if (runner.runningTaskId() !== null) return { ok: false, message: "Đang chạy một việc. Chờ xong rồi mở trình duyệt để đăng nhập." };
+  const s = db.getSettings().chrome;
+  // Dùng đúng thư viện Playwright đi kèm Playwright MCP để cùng phiên bản.
+  const req = createRequire(require.resolve("@playwright/mcp/package.json"));
+  const { chromium } = req("playwright-core") as typeof import("playwright-core");
+  const { profileDir } = profilePaths(dataDir);
+  try {
+    const ctx = await chromium.launchPersistentContext(profileDir, { channel: s.browser, headless: false, viewport: null });
+    browserWindowOpen = true;
+    ctx.on("close", () => { browserWindowOpen = false; });
+    const page = ctx.pages()[0] ?? await ctx.newPage();
+    await page.goto("about:blank");
+    return { ok: true, message: "Đã mở trình duyệt của app. Đăng nhập các website cần dùng, xong thì đóng cửa sổ đó rồi mới giao việc." };
+  } catch (err) {
+    browserWindowOpen = false;
+    const name = s.browser === "chrome" ? "Google Chrome" : "Microsoft Edge";
+    return { ok: false, message: `Không mở được ${name}: ${String(err).slice(0, 300)}. Kiểm tra máy đã cài ${name}, hoặc đổi trình duyệt trong mục Chrome.` };
+  }
+}
+
 function registerIpc(db: HubDb, keys: KeyRing, runner: AgentRunner, skills: SkillStore) {
   const h = (ch: string, fn: (...a: any[]) => unknown) => ipcMain.handle(ch, (_e, ...a) => fn(...a));
   h("appVersion", () => app.getVersion());
@@ -41,6 +68,11 @@ function registerIpc(db: HubDb, keys: KeyRing, runner: AgentRunner, skills: Skil
   h("saveSettings", (s: Settings) => {
     const err = validateLimits(s.limits);
     if (err) throw new Error(err);
+    // Danh sách website: chỉ giữ tên miền hợp lệ và quyền đã biết.
+    const c = s.chrome ?? db.getSettings().chrome;
+    s.chrome = { enabled: c.enabled !== false, browser: c.browser === "msedge" ? "msedge" : "chrome",
+      sites: (Array.isArray(c.sites) ? c.sites : []).filter((x) => /^[a-z0-9.-]+$/.test(String(x?.host ?? "")) && ["read", "ask", "auto"].includes(x.mode))
+        .map((x) => ({ host: String(x.host), mode: x.mode })) };
     db.saveSettings(s);
     return db.getSettings();
   });
@@ -129,7 +161,9 @@ function registerIpc(db: HubDb, keys: KeyRing, runner: AgentRunner, skills: Skil
   h("listConversations", (id: number) => db.listConversations(Number(id)));
   h("conversationItems", (id: number) => db.conversationItems(Number(id)));
   h("search", (q: string) => db.search(String(q ?? "")));
+  h("openBrowserProfile", () => openBrowserProfile(db, runner, app.getPath("userData")));
   h("startTask", async (input: StartTaskInput) => {
+    if (browserWindowOpen) return { ok: false, message: "Trình duyệt của app đang mở để đăng nhập. Đóng cửa sổ đó rồi giao việc." };
     const r = await runner.start(input);
     return { ok: r.ok, taskId: r.taskId, conversationId: r.conversationId, message: r.message };
   });
@@ -170,6 +204,7 @@ async function startApp() {
   const skills = new SkillStore(path.join(dataDir, "skills"));
   const runner = new AgentRunner({
     db, query, emit, keys, skills, claudePath: claudeExecutablePath(), appVersion: app.getVersion(),
+    chrome: { nodeBinary: process.execPath, cliPath: playwrightMcpCliPath(), ...profilePaths(dataDir) },
   });
   registerIpc(db, keys, runner, skills);
 

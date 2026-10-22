@@ -9,3 +9,9 @@ export function claudeExecutablePath(): string {
   const dir = path.dirname(require.resolve(`${pkg}/package.json`));
   return path.join(dir, exe).replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
 }
+
+// Tệp chạy Playwright MCP (điều khiển trình duyệt), cũng được giải nén khỏi app.asar.
+export function playwrightMcpCliPath(): string {
+  const dir = path.dirname(require.resolve("@playwright/mcp/package.json"));
+  return path.join(dir, "cli.js").replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
+}

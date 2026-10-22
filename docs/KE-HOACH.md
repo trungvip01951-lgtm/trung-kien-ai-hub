@@ -16,6 +16,7 @@ Yêu cầu gốc: `docs/YEU-CAU-GOC.md` (nguyên văn của anh Trung, không s�
 | Đóng gói | SDK chạy kèm tệp `claude.exe` (gói `@anthropic-ai/claude-agent-sdk-win32-x64`); phải giải nén khỏi app.asar | đo trong Mốc 0 |
 | systemPrompt mặc định | Không đặt thì SDK gửi 1 câu "You are a Claude agent, built on Anthropic's Claude Agent SDK."; preset claude_code ~6.560 ký tự | đo bằng máy chủ API giả 22/10/2026 |
 | Plugin cục bộ | `plugins: [{type:"local", path}]` nạp `skills/` của thư mục; Skill tên `<tên plugin>:<tên skill>`; không cần plugin.json (lấy tên thư mục) | đo 22/10/2026 |
+| Playwright MCP 0.0.83 | Đăng 28/09/2026; `--allowed-origins` "không phải hàng rào bảo mật" nên app tự kiểm quyền; mặc định 25 công cụ, không có cookie/storage (bật bằng --caps); `browser_navigate` ghi snapshot ra tệp trong `--output-dir`, `browser_snapshot` trả trực tiếp; chạy được bằng Electron ở chế độ Node; công cụ MCP bị hoãn sau ToolSearch nhưng gọi thẳng vẫn chạy | README gói, đo 22/10/2026 |
 | Browser use tool | `browser_toolset_20260801`, GA, chạy phía máy khách; chưa xác minh dùng được trong Agent SDK | platform.claude.com/docs/en/agents-and-tools/tool-use/browser-use-tool |
 
 ## Cách làm đã chốt
@@ -32,7 +33,7 @@ Yêu cầu gốc: `docs/YEU-CAU-GOC.md` (nguyên văn của anh Trung, không s�
 |---|---|---|---|
 | 0 | Khung Electron + TypeScript, Agent SDK đóng gói được, GitHub Actions build .exe, cài im lặng và kiểm tra khói trên Windows | 1 (trên máy CI) | ĐẠT trên máy CI 22/10/2026; chờ anh cài thử trên máy thật |
 | 1 | API key (DPAPI), chọn dự án, chat streaming qua Agent SDK, hiện bước công cụ, lịch sử SQLite/FTS5, dừng/tiếp tục, token và chi phí, hạn mức công việc/ngày/tháng có chặn cứng | 1–9, 17–20 | Bản 0.2.1: anh Trung xác nhận chạy được trên máy với API key thật (22/10/2026 20:53); chưa đối chiếu chi phí với Console |
-| 2 | Chrome: hồ sơ riêng, quyền theo website, xác nhận thao tác rủi ro | 11–13 | chưa làm |
+| 2 | Chrome: hồ sơ riêng, quyền theo website, xác nhận thao tác rủi ro | 11–13 | Bản 0.4.0 (22/10/2026): đạt trên cloud (Chromium, trang thử, máy chủ API giả); chờ anh nghiệm thu trên Chrome thật |
 | 3 | Kiểm kê và nhập dự án cũ trên máy anh (chỉ đọc), thử tiếp tục 1 việc thật mỗi nhóm | 24–25 | Bản 0.3.0 (22/10/2026): đạt trên cloud (test + SDK thật key giả); chờ anh nghiệm thu với Skill và dự án thật |
 | 4 | Windows, Excel/Word/PDF, sao lưu/khôi phục, hàng đợi, lịch | 14–16, 21–23 | chưa làm |
 | 5 | Module nghiệp vụ (Search Console, Google Ads API, catalogue, Zalo/AI Desk) khi Skills chưa đủ | — | chưa làm |

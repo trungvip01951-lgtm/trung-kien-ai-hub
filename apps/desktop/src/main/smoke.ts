@@ -3,7 +3,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import { promisify } from "node:util";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
-import { claudeExecutablePath } from "./sdk-path";
+import { claudeExecutablePath, playwrightMcpCliPath } from "./sdk-path";
 
 const run = promisify(execFile);
 
@@ -31,6 +31,15 @@ export async function runSmokeTest(outFile?: string): Promise<boolean> {
     checks.push({ name: "sdk-module-loads", pass: typeof sdk.query === "function", detail: typeof sdk.query });
   } catch (err) {
     checks.push({ name: "sdk-module-loads", pass: false, detail: String(err) });
+  }
+
+  // 3b. Playwright MCP (điều khiển trình duyệt) chạy được bằng tệp chạy của app ở chế độ Node.
+  try {
+    const cli = playwrightMcpCliPath();
+    const { stdout } = await run(process.execPath, [cli, "--help"], { timeout: 60_000, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } });
+    checks.push({ name: "playwright-mcp-runs", pass: stdout.includes("Playwright MCP"), detail: cli });
+  } catch (err) {
+    checks.push({ name: "playwright-mcp-runs", pass: false, detail: String(err) });
   }
 
   // 4. SQLite có sẵn trong Electron hỗ trợ FTS5 (lịch sử và tìm kiếm cần).

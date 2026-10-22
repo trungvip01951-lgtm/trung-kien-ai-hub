@@ -12,7 +12,8 @@ import type { KeyEntry } from "./keys";
 // Agent giả: phát lại các tin nhắn kịch bản, không gọi API thật.
 type Script = (opts: Options, ctl: { interrupted: () => boolean }) => AsyncGenerator<SDKMessage>;
 
-function setup(script: Script, apiKey: string | null = "sk-ant-api03-gia", extraKeys: string[] = [], skills?: { pluginPath(): string | null; readableRoot(): string }) {
+function setup(script: Script, apiKey: string | null = "sk-ant-api03-gia", extraKeys: string[] = [], skills?: { pluginPath(): string | null; readableRoot(): string },
+  chrome?: { nodeBinary: string; cliPath: string; profileDir: string; outputDir: string }) {
   const all = apiKey ? [apiKey, ...extraKeys] : [];
   const entries: KeyEntry[] = all.map((k, i) => ({ id: `k${i + 1}`, label: `Key ${i + 1}`, key: k, addedAt: "" }));
   const marks: string[] = [];
@@ -27,7 +28,7 @@ function setup(script: Script, apiKey: string | null = "sk-ant-api03-gia", extra
   const calls: Options[] = [];
   let interrupted = false;
   const runner = new AgentRunner({
-    db, emit: (e) => events.push(e), keys, skills, claudePath: "/khong/can", appVersion: "0.0.0-test",
+    db, emit: (e) => events.push(e), keys, skills, chrome, claudePath: "/khong/can", appVersion: "0.0.0-test",
     query: ({ options }) => {
       calls.push(options!);
       const gen = script(options!, { interrupted: () => interrupted });
@@ -287,4 +288,38 @@ test("tiếp tục phiên Claude Code cũ: lần đầu không tính chi phí l�
   assert.ok(task.costUsd > 0);
   const conv = t.db.getConversation(c.id)!;
   assert.equal(conv.sessionTotalUsd, 20);      // từ lần sau trừ theo tổng này
+});
+
+test("trình duyệt: bật thì nạp máy chủ MCP và áp quyền theo website; tắt thì chặn công cụ trình duyệt", async () => {
+  const paths = { nodeBinary: "/app/app", cliPath: "/app/cli.js", profileDir: "/d/chrome-profile", outputDir: "/d/chrome-output" };
+  const decisions: string[] = [];
+  const script: Script = async function* (opts) {
+    yield init();
+    const pre = opts.hooks!.PreToolUse![0].hooks[0];
+    const post = opts.hooks!.PostToolUse![0].hooks[0];
+    const ask = async (tool_name: string, tool_input: unknown) => {
+      const r = await pre({ hook_event_name: "PreToolUse", tool_name, tool_input } as never, undefined, { signal: new AbortController().signal });
+      decisions.push(`${tool_name.replace("mcp__chrome__", "")}:${(r as { hookSpecificOutput: { permissionDecision: string } }).hookSpecificOutput.permissionDecision}`);
+    };
+    await ask("mcp__chrome__browser_navigate", { url: "https://mau-a.vn/" });
+    await post({ hook_event_name: "PostToolUse", tool_name: "mcp__chrome__browser_navigate", tool_response: [{ type: "text", text: "- Page URL: https://mau-a.vn/\n" }] } as never, undefined, { signal: new AbortController().signal });
+    await ask("mcp__chrome__browser_type", { element: "ô tìm", target: "e1", text: "máy bơm" });
+    await ask("mcp__chrome__browser_cookie_list", {});
+    yield result(0.001);
+  };
+  const t = setup(script, "sk-ant-api03-gia", [], undefined, paths);
+  t.db.saveSettings({ ...t.db.getSettings(), chrome: { enabled: true, browser: "msedge", sites: [{ host: "mau-a.vn", mode: "auto" }] } });
+  await (await t.runner.start(input(t.project.id))).done;
+  const srv = t.calls[0].mcpServers!.chrome as { command: string; args: string[] };
+  assert.equal(srv.command, "/app/app");
+  assert.ok(srv.args.includes("msedge"));
+  assert.deepEqual(decisions, ["browser_navigate:allow", "browser_type:allow", "browser_cookie_list:deny"]);
+  assert.match((t.calls[0].systemPrompt as { prompt: string }).prompt, /mcp__chrome__/);
+
+  decisions.length = 0;
+  const t2 = setup(script, "sk-ant-api03-gia", [], undefined, paths);
+  t2.db.saveSettings({ ...t2.db.getSettings(), chrome: { enabled: false, browser: "chrome", sites: [] } });
+  await (await t2.runner.start(input(t2.project.id))).done;
+  assert.equal(t2.calls[0].mcpServers, undefined);
+  assert.deepEqual(decisions, ["browser_navigate:deny", "browser_type:deny", "browser_cookie_list:deny"]);
 });

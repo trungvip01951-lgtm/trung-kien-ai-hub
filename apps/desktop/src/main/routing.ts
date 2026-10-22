@@ -35,9 +35,10 @@ export const ROUTING_GUIDE = [
 ].join("\n");
 
 // Lời dặn hệ thống cho AI chính: phần chia việc (nếu bật) + hướng dẫn dự án anh Trung soạn trong app.
-export function buildSystemPrompt(projectInstructions: string, autoRouting: boolean): Options["systemPrompt"] | undefined {
+export function buildSystemPrompt(projectInstructions: string, autoRouting: boolean, extraGuide = ""): Options["systemPrompt"] | undefined {
   const parts: string[] = [];
   if (autoRouting) parts.push(ROUTING_GUIDE);
+  if (extraGuide) parts.push(extraGuide);
   const ins = projectInstructions.trim();
   if (ins) parts.push(`Hướng dẫn dự án (anh Trung đặt trong Trung Kiên AI Hub, áp dụng cho mọi việc của dự án này):\n${ins}`);
   if (!parts.length) return undefined;
