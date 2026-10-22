@@ -26,7 +26,12 @@ export function orderForUse(list: KeyEntry[], state: Record<string, KeyState>, n
 const SWITCH_ERRORS = new Set(["billing_error", "authentication_failed", "account_on_hold", "verification_required", "rate_limit"]);
 const SWITCH_TEXT = /credit balance|insufficient|billing|invalid api key|authentication|rate.?limit|spend limit|usage limit/i;
 
+// Key cấp tổ chức (không gắn workspace): máy chủ đòi header anthropic-workspace-id. Anh Trung gặp 22/10/2026.
+const NO_WORKSPACE = /not scoped to a workspace|anthropic-workspace-id/i;
+export const NO_WORKSPACE_REASON = "Key không thuộc workspace nào. Vào Claude Console → Workspaces → chọn workspace → API Keys → Create Key, rồi thêm key mới đó";
+
 export function keyErrorReason(assistantError?: string | null, resultText?: string | null): string | null {
+  if (resultText && NO_WORKSPACE.test(resultText)) return NO_WORKSPACE_REASON;
   if (assistantError && SWITCH_ERRORS.has(assistantError)) return LABELS[assistantError] ?? assistantError;
   if (resultText && SWITCH_TEXT.test(resultText)) return resultText.slice(0, 200);
   return null;

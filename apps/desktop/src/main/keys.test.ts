@@ -18,6 +18,9 @@ test("nhận đúng lỗi do key", () => {
   assert.ok(keyErrorReason("authentication_failed", null));
   assert.ok(keyErrorReason(null, "Your credit balance is too low to access the API"));
   assert.ok(keyErrorReason(null, "Invalid API key · Fix external API key"));
+  const ws = "Error: Claude Code returned an error result: API Error: 400 This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header";
+  assert.ok(keyErrorReason(null, ws)?.includes("workspace"));
+  assert.ok(keyErrorReason("invalid_request", ws));
   assert.equal(keyErrorReason("server_error", "Internal error"), null);
   assert.equal(keyErrorReason("max_output_tokens", null), null);
 });

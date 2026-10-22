@@ -33,3 +33,7 @@ Mục mới nối xuống cuối. Mỗi mục: `## dd/mm/yyyy hh:mm — <tên AI
 
 ## 22/10/2026 20:11 — Claude-1
 - Ghi chú bản phát hành (CI) thêm dòng hướng dẫn tải ở đầu, vì anh Trung không biết bấm tệp nào trên trang Releases.
+
+## 22/10/2026 20:48 — Claude-1
+- Bản 0.2.1: anh Trung thêm key cấp tổ chức, nhận lỗi "API Error: 400 This API key is not scoped to a workspace…anthropic-workspace-id". Nguyên nhân: key không gắn workspace. App giờ nhận lỗi này (kể cả khi SDK ném lỗi thay vì trả result), báo tiếng Việt cách tạo key trong workspace, và tự chuyển key kế tiếp. Tệp: `src/main/keys.ts`, `agent.ts`, test. Kiểm: 32/32 test.
+- Hướng dẫn anh: tạo key trong một workspace (Console → Workspaces → API Keys), đặt giới hạn chi tiêu cho workspace đó.

@@ -290,7 +290,8 @@ export class AgentRunner {
           }
           const sub = m.parent_tool_use_id !== null;
           if (m.error) {
-            keyError = keyError ?? keyErrorReason(m.error, null);
+            const errText = msg.content.map((c) => (c.type === "text" ? c.text : "")).join(" ");
+            keyError = keyError ?? keyErrorReason(m.error, errText);
             if (!keyError) item("error", `Lỗi từ API: ${m.error}`);
           }
           for (const b of msg.content) {
@@ -322,6 +323,7 @@ export class AgentRunner {
         }
       }
     } catch (err) {
+      keyError = keyError ?? keyErrorReason(null, String(err));
       if (!message) message = `Lỗi khi chạy agent: ${clip(String(err), 500)}`;
     }
 
@@ -395,6 +397,6 @@ export class AgentRunner {
     else this.deps.keys.markError(keyId, keyErrorReason(null, detail) ?? clip(detail || "Lỗi không rõ", 200));
     return ok
       ? { ok: true, message: `Key hoạt động, tính phí theo API key. Trả lời: "${clip(detail, 40)}". Chi phí ~${usd4(cost)}.`, costUsd: cost }
-      : { ok: false, message: `Key không dùng được: ${detail || "không rõ lỗi"}`, costUsd: cost };
+      : { ok: false, message: `Key không dùng được: ${keyErrorReason(null, detail) ?? (detail || "không rõ lỗi")}`, costUsd: cost };
   }
 }

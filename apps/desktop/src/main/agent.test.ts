@@ -239,3 +239,18 @@ test("nhiều key: lỗi không phải do key thì không chuyển key", async (
   await r.done;
   assert.equal(t.calls.length, 1);
 });
+
+test("key chưa gắn workspace (SDK ném lỗi): chuyển sang key kế tiếp, báo cách sửa", async () => {
+  const t = setup(async function* (opts) {
+    yield init();
+    if (opts.env!.ANTHROPIC_API_KEY === "sk-ant-api03-mot") {
+      throw new Error("Claude Code returned an error result: API Error: 400 This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header");
+    }
+    yield result(0.01);
+  }, "sk-ant-api03-mot", ["sk-ant-api03-hai"]);
+  const r = await t.runner.start(input(t.project.id));
+  const task = await r.done!;
+  assert.equal(task.status, "done");
+  assert.equal(t.calls.length, 2);
+  assert.ok(t.marks.some((m) => m.startsWith("k1:err:Key không thuộc workspace")));
+});
