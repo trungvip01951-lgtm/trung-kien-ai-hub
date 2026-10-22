@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { decide } from "./policy";
+import { alwaysKey, decide } from "./policy";
 import { checkSettings } from "./settings-guard";
 
 const dir = mkdtempSync(path.join(os.tmpdir(), "du-an-mau-"));
@@ -66,4 +66,15 @@ test("đọc tài liệu trong kho Skill của app không cần hỏi, nơi khá
   const kho = path.join(os.tmpdir(), "kho-skill", "plugin");
   assert.equal(decide("read", "Read", { file_path: path.join(kho, "skills", "a", "ref.md") }, proj, [kho]).decision, "allow");
   assert.equal(decide("read", "Read", { file_path: path.join(os.tmpdir(), "khac.txt") }, proj, [kho]).decision, "ask");
+});
+
+test("khoá Đồng ý luôn: hẹp theo lệnh, thư mục, tên miền", () => {
+  const proj = path.join(os.tmpdir(), "du-an-k");
+  assert.equal(alwaysKey("Bash", { command: "npm test" }, proj), alwaysKey("Bash", { command: "npm  test --watch" }, proj));
+  assert.notEqual(alwaysKey("Bash", { command: "npm test" }, proj), alwaysKey("Bash", { command: "npm run build" }, proj));
+  assert.equal(alwaysKey("Bash", { command: "npm test && curl x" }, proj), "Bash=npm test && curl x");
+  assert.equal(alwaysKey("WebFetch", { url: "https://Mau-A.vn/x" }, proj), "WebFetch@mau-a.vn");
+  assert.notEqual(alwaysKey("Read", { file_path: "/a/b/c.txt" }, proj), alwaysKey("Read", { file_path: "/a/d/c.txt" }, proj));
+  // Tệp cấu hình được bảo vệ: không có Đồng ý luôn.
+  assert.equal(decide("write", "Edit", { file_path: path.join(proj, "CLAUDE.md") }, proj).noAlways, true);
 });

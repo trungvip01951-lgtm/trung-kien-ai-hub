@@ -19,9 +19,9 @@ export const PRESETS: Record<Exclude<ConnectionKind, "custom">, { name: string; 
   sheets: { name: "Google Trang tính", url: "https://sheetsmcp.googleapis.com/mcp/v1", google: true },
 };
 
-// Cổng nhận kết quả đăng nhập trên máy (OAuth client loại "Desktop app" của Google chấp nhận mọi cổng localhost).
+// Cổng nhận kết quả đăng nhập trên máy, chỉ nghe 127.0.0.1 (OAuth client loại "Desktop app" của Google chấp nhận
+// mọi cổng loopback). Dùng 127.0.0.1 thay "localhost" để trình duyệt không gửi mã tới tiến trình khác nghe ::1.
 export const CALLBACK_PORT = 8765;
-export const REDIRECT_URL = `http://localhost:${CALLBACK_PORT}/callback`;
 const REFRESH_BEFORE_MS = 5 * 60 * 1000;
 const LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -44,10 +44,15 @@ export function slugOf(name: string): string {
 export class Connections {
   private list: Stored[] = [];
   private secrets: Record<string, Secret> = {};
-  private callback: Server | null = null;
+  private loginBusy = false;
+  private refreshing = new Map<string, Promise<void>>();
+  private port: number;
+  private redirectUrl: string;
 
   constructor(private file: string, private secretFile: string, private cipher: Cipher,
-    private openUrl: (url: string) => void | Promise<void>, private fetchFn: typeof fetch = fetch) {
+    private openUrl: (url: string) => void | Promise<void>, private fetchFn: typeof fetch = fetch, opts: { port?: number } = {}) {
+    this.port = opts.port ?? CALLBACK_PORT;
+    this.redirectUrl = `http://127.0.0.1:${this.port}/callback`;
     if (existsSync(file)) { try { this.list = JSON.parse(readFileSync(file, "utf8")); } catch { this.list = []; } }
     if (existsSync(secretFile)) { try { this.secrets = JSON.parse(cipher.decrypt(readFileSync(secretFile))); } catch { this.secrets = {}; } }
   }
@@ -119,12 +124,13 @@ export class Connections {
   private provider(c: Stored, interactive: { onRedirect(url: URL): void } | null): OAuthClientProvider {
     const sec = () => (this.secrets[c.id] ??= {});
     const google = PRESETS[c.kind as keyof typeof PRESETS]?.google ?? false;
+    const redirect = this.redirectUrl;
     const metadata: OAuthClientMetadata = {
-      client_name: "Trung Kien AI Hub", redirect_uris: [REDIRECT_URL],
+      client_name: "Trung Kien AI Hub", redirect_uris: [redirect],
       grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none",
     };
     return {
-      get redirectUrl() { return REDIRECT_URL; },
+      get redirectUrl() { return redirect; },
       get clientMetadata() { return metadata; },
       clientInformation: () => sec().client,
       saveClientInformation: (info) => { sec().client = info; this.save(); },
@@ -152,17 +158,19 @@ export class Connections {
   async login(id: string): Promise<{ ok: boolean; message: string }> {
     const c = this.list.find((x) => x.id === id);
     if (!c) return { ok: false, message: "Không tìm thấy kết nối." };
-    if (this.callback) return { ok: false, message: "Đang chờ một lần đăng nhập khác. Hoàn tất hoặc chờ 10 phút." };
+    if (this.loginBusy) return { ok: false, message: "Đang chờ một lần đăng nhập khác. Hoàn tất hoặc chờ 10 phút." };
     const info = this.info().find((x) => x.id === id)!;
     if (info.needsClientId && !info.hasClientId) return { ok: false, message: "Nhập OAuth Client ID của Google trước (xem hướng dẫn)." };
+    this.loginBusy = true;
     const state = randomUUID();
     let server: Server | null = null;
     try {
       const code = await new Promise<string>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error("Quá 10 phút chưa đăng nhập xong.")), LOGIN_TIMEOUT_MS);
         server = createServer((req, res) => {
-          const u = new URL(req.url ?? "/", REDIRECT_URL);
-          if (u.pathname !== "/callback") { res.writeHead(404); res.end(); return; }
+          const u = new URL(req.url ?? "/", this.redirectUrl);
+          // Sai đường dẫn hoặc sai state (trang khác gọi vào): bỏ qua, tiếp tục chờ đúng kết quả.
+          if (u.pathname !== "/callback" || u.searchParams.get("state") !== state) { res.writeHead(404); res.end(); return; }
           const ok = u.searchParams.get("code") && u.searchParams.get("state") === state;
           res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
           res.end(`<meta charset="utf-8"><body style="font:16px sans-serif;padding:40px">${ok ? "Đã đăng nhập xong. Quay lại Trung Kiên AI Hub." : "Đăng nhập không thành công. Quay lại app thử lại."}</body>`);
@@ -170,9 +178,10 @@ export class Connections {
           if (ok) resolve(u.searchParams.get("code")!);
           else reject(new Error(u.searchParams.get("error_description") ?? u.searchParams.get("error") ?? "Dịch vụ không trả mã đăng nhập."));
         });
-        server.on("error", (e) => { clearTimeout(timer); reject(new Error(`Không mở được cổng ${CALLBACK_PORT} trên máy: ${String(e)}`)); });
-        server.listen(CALLBACK_PORT, "127.0.0.1", () => {
-          this.callback = server;
+        server.on("error", (e) => { clearTimeout(timer); reject(new Error(`Cổng ${this.port} trên máy đang bị chương trình khác dùng, đóng chương trình đó rồi thử lại (${String(e)}).`)); });
+        server.listen(this.port, "127.0.0.1", () => {
+          // Cổng 0 (chỉ dùng khi kiểm thử): hệ điều hành chọn cổng trống.
+          if (this.port === 0) this.redirectUrl = `http://127.0.0.1:${(server!.address() as { port: number }).port}/callback`;
           const p = this.provider(c, { onRedirect: (url) => { void this.openUrl(url.toString()); } });
           (p as { state?: () => string }).state = () => state;
           auth(p, { serverUrl: c.url, fetchFn: this.fetchFn }).then((r) => {
@@ -195,7 +204,7 @@ export class Connections {
       return { ok: false, message: `Không kết nối được ${c.name}: ${c.lastError}` };
     } finally {
       (server as Server | null)?.close();
-      this.callback = null;
+      this.loginBusy = false;
     }
   }
 
@@ -214,7 +223,14 @@ export class Connections {
       const exp = t.expires_in && t.savedAt ? t.savedAt + t.expires_in * 1000 : null;
       if (exp && exp - Date.now() < REFRESH_BEFORE_MS) {
         try {
-          await auth(this.provider(c, null), { serverUrl: c.url, fetchFn: this.fetchFn });
+          // Mỗi kết nối chỉ làm mới một lần một lúc (máy chủ xoay vòng mã làm mới sẽ từ chối lần thứ hai).
+          let job = this.refreshing.get(c.id);
+          if (!job) {
+            job = auth(this.provider(c, null), { serverUrl: c.url, fetchFn: this.fetchFn }).then(() => undefined)
+              .finally(() => this.refreshing.delete(c.id));
+            this.refreshing.set(c.id, job);
+          }
+          await job;
           t = this.secrets[c.id]?.tokens;
           c.lastError = null;
         } catch (err) {
@@ -240,7 +256,7 @@ export class Connections {
     if (level === "full") return { decision: "allow", reason: "Đủ quyền" };
     if (READ_TOOL.test(tool)) return { decision: "allow", reason: `${c?.name}: đọc dữ liệu` };
     if (level === "read") return { decision: "deny", reason: `Chế độ Chỉ đọc: không dùng ${tool} của ${c?.name} (có thể gửi/sửa dữ liệu).` };
-    return { decision: "ask", reason: `${c?.name}: ${tool} có thể gửi/sửa dữ liệu thật` };
+    return { decision: "ask", reason: `${c?.name}: ${tool} có thể gửi/sửa dữ liệu thật`, noAlways: true };
   }
 }
 

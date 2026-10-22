@@ -4,14 +4,16 @@ import type { CanUseTool, HookCallback, Options, Query, SDKMessage } from "@anth
 import type { HubEvent, ModelId, StartTaskInput, TaskRow, TaskStatus } from "../shared/contract";
 import { allowance, crossedWarning, cycleStart, dayStart, SDK_HEADROOM } from "./budget";
 import type { HubDb } from "./db";
-import { decide, summarizeInput } from "./policy";
+import { alwaysKey, decide, summarizeInput } from "./policy";
 import { estimateCostUsd, type TokenUsage } from "./pricing";
 import { keyErrorReason, type KeyEntry } from "./keys";
 import { checkSettings, settingsFiles } from "./settings-guard";
 import { buildSystemPrompt, ROUTED_AGENTS } from "./routing";
 import { CHROME_GUIDE, CHROME_SERVER, chromeServerConfig, decideBrowser, hostOf, isBrowserTool, newBrowserState, updateBrowserState, type ChromePaths } from "./chrome";
-import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
+import type { AgentDefinition, McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
+import { MEMORY_GUIDE, MEMORY_SERVER, memoryServer, type MemoryStore } from "./memory-tools";
 import type { Decision } from "./policy";
+import { decideOffice, decideWindows, OFFICE_SERVER, WIN_SERVER } from "./local-tools";
 
 export type QueryFn = (args: { prompt: string; options?: Options }) => Query;
 
@@ -26,6 +28,11 @@ export interface AgentDeps {
   skills?: { pluginPath(): string | null; readableRoot(): string };
   // Điều khiển trình duyệt (Playwright MCP); không có thì không nạp công cụ trình duyệt.
   chrome?: ChromePaths;
+  // AI chuyên môn đang bật (mục Agents) và bộ nhớ dài hạn.
+  specialists?: () => Record<string, AgentDefinition>;
+  memory?: MemoryStore;
+  // Công cụ chạy trong app: điều khiển Windows, Excel/Word/PDF (tạo mới cho từng việc).
+  local?: { windows(): McpServerConfig | null; office(projectDir: string): McpServerConfig };
   // Kết nối Windsor.ai, Google... (máy chủ MCP từ xa, đăng nhập OAuth trong app).
   connections?: {
     forTask(): Promise<{ servers: Record<string, McpServerConfig>; notes: string[] }>;
@@ -114,7 +121,8 @@ export class AgentRunner {
     const p = this.pending.get(requestId);
     if (!p) return;
     this.pending.delete(requestId);
-    if (allow && always) {
+    if (allow && always && p.key) {
+      const auto: string[] = [];
       const conv = this.runs.get(p.taskId)?.conversationId;
       if (conv != null) {
         const set = this.alwaysAllow.get(conv) ?? new Set<string>();
@@ -122,8 +130,9 @@ export class AgentRunner {
         this.alwaysAllow.set(conv, set);
         // Các yêu cầu cùng loại đang chờ trong hội thoại này cũng được cho luôn.
         for (const [id, q] of this.pending) {
-          if (q.key === p.key && this.runs.get(q.taskId)?.conversationId === conv) { this.pending.delete(id); q.resolve(true); }
+          if (q.key === p.key && this.runs.get(q.taskId)?.conversationId === conv) { this.pending.delete(id); q.resolve(true); auto.push(id); }
         }
+        if (auto.length) this.deps.emit({ type: "permission-resolved", requestIds: auto });
       }
     }
     p.resolve(allow);
@@ -145,31 +154,34 @@ export class AgentRunner {
   }
 
   private denyPending(taskId: number) {
-    for (const [id, p] of this.pending) if (p.taskId === taskId) { this.pending.delete(id); p.resolve(false); }
+    const ids: string[] = [];
+    for (const [id, p] of this.pending) if (p.taskId === taskId) { this.pending.delete(id); p.resolve(false); ids.push(id); }
+    if (ids.length) this.deps.emit({ type: "permission-resolved", requestIds: ids });
   }
 
-  private askUser(taskId: number, toolName: string, input: unknown, signal?: AbortSignal, reason?: string, key = toolName): Promise<boolean> {
-    if (this.isAlwaysAllowed(taskId, key)) return Promise.resolve(true);
+  private askUser(taskId: number, toolName: string, input: unknown, signal?: AbortSignal, reason?: string, key: string | null = null): Promise<boolean> {
+    if (key && this.isAlwaysAllowed(taskId, key)) return Promise.resolve(true);
     const requestId = `p${++this.seq}`;
     return new Promise((resolve) => {
       const timer = setTimeout(() => this.answerPermission(requestId, false), ASK_TIMEOUT_MS);
-      this.pending.set(requestId, { taskId, key, resolve: (allow) => { clearTimeout(timer); resolve(allow); } });
+      this.pending.set(requestId, { taskId, key: key ?? "", resolve: (allow) => { clearTimeout(timer); resolve(allow); } });
       signal?.addEventListener("abort", () => this.answerPermission(requestId, false), { once: true });
-      this.deps.emit({ type: "permission-request", requestId, taskId, toolName, summary: `${reason ? `${reason}\n` : ""}${summarizeInput(toolName, input)}` });
+      this.deps.emit({ type: "permission-request", requestId, taskId, toolName, summary: `${reason ? `${reason}\n` : ""}${summarizeInput(toolName, input)}`, canAlways: !!key });
     });
   }
 
   // Bắt đầu một việc. Trả về ngay sau khi tạo việc; tiến trình chạy tiếp ở nền.
-  async start(input: StartTaskInput): Promise<{ ok: boolean; taskId?: number; conversationId?: number; message?: string; done?: Promise<TaskRow> }> {
+  // busy: không chạy được lúc này vì đang bận (đủ số việc, hội thoại đang chạy, đang kiểm key) — xếp hàng được.
+  async start(input: StartTaskInput): Promise<{ ok: boolean; busy?: boolean; taskId?: number; conversationId?: number; message?: string; done?: Promise<TaskRow> }> {
     const { db } = this.deps;
     // Lấy mã truy cập các kết nối trước mọi kiểm tra (có thể cần gọi mạng để làm mới), để phần kiểm tra phía sau
     // và việc ghi nhận việc đang chạy không bị chen giữa.
     const connections = this.deps.connections ? await this.deps.connections.forTask() : { servers: {}, notes: [] as string[] };
-    if (this.testing) return { ok: false, message: "Đang kiểm tra API key, thử lại sau vài giây." };
+    if (this.testing) return { ok: false, busy: true, message: "Đang kiểm tra API key, thử lại sau vài giây." };
     if (input.conversationId != null && [...this.runs.values()].some((r) => r.conversationId === input.conversationId)) {
-      return { ok: false, message: "Hội thoại này đang chạy. Chờ xong, bấm Dừng, hoặc mở hội thoại mới." };
+      return { ok: false, busy: true, message: "Hội thoại này đang chạy. Chờ xong, bấm Dừng, hoặc mở hội thoại mới." };
     }
-    if (this.runs.size >= MAX_PARALLEL) return { ok: false, message: `Đang chạy ${MAX_PARALLEL} việc cùng lúc (tối đa). Chờ một việc xong rồi giao tiếp.` };
+    if (this.runs.size >= MAX_PARALLEL) return { ok: false, busy: true, message: `Đang chạy ${MAX_PARALLEL} việc cùng lúc (tối đa). Chờ một việc xong rồi giao tiếp.` };
     const keys = this.deps.keys.forUse();
     if (!keys.length) return { ok: false, message: "Chưa có API key. Vào Cài đặt để nhập." };
     const project = db.getProject(input.projectId);
@@ -198,21 +210,34 @@ export class AgentRunner {
     const chrome = settings.chrome.enabled && this.deps.chrome && !browserBusy ? settings.chrome : null;
     const noBrowser = !settings.chrome.enabled || !this.deps.chrome ? "Điều khiển trình duyệt đang tắt (mục Chrome)."
       : `Trình duyệt đang được việc #${browserBusy?.taskId} dùng. Chờ việc đó xong rồi giao lại phần cần trình duyệt.`;
-    const systemPrompt = buildSystemPrompt(project.instructions, autoRouting, chrome ? CHROME_GUIDE : "");
+    const guides = [chrome ? CHROME_GUIDE : "", this.deps.memory ? MEMORY_GUIDE : ""].filter(Boolean).join("\n\n");
+    const systemPrompt = buildSystemPrompt(project.instructions, autoRouting, guides);
+    const agents = { ...(autoRouting ? ROUTED_AGENTS : {}), ...(this.deps.specialists?.() ?? {}) };
     // Trang đang mở trong trình duyệt của app (lấy từ kết quả công cụ) để áp quyền theo website.
     const browser = newBrowserState();
     const decideTool = (toolName: string, toolInput: unknown) => (isBrowserTool(toolName)
       ? (chrome ? decideBrowser(chrome, toolName, toolInput, browser, level === "read", level === "full") : { decision: "deny" as const, reason: noBrowser })
+      : toolName.startsWith(`mcp__${MEMORY_SERVER}__`) ? { decision: "allow" as const, reason: "Bộ nhớ của app" }
+      : toolName.startsWith(`mcp__${WIN_SERVER}__`) ? decideWindows(toolName.slice(WIN_SERVER.length + 7), level)
+      : toolName.startsWith(`mcp__${OFFICE_SERVER}__`) ? decideOffice(toolName.slice(OFFICE_SERVER.length + 7), toolInput, level, project.path)
       : this.deps.connections?.owns(toolName) ? this.deps.connections.decide(toolName, level)
       : decide(level, toolName, toolInput, project.path, extraRead));
-    // Loại thao tác cho nút "Đồng ý luôn": công cụ trình duyệt tính theo từng website.
-    const askKey = (toolName: string) => (isBrowserTool(toolName) ? `${toolName}@${(browser.url && hostOf(browser.url)) ?? "?"}` : toolName);
+    // Khoá cho nút "Đồng ý luôn" (null = không cho). Trình duyệt: mở trang theo tên miền đích, thao tác theo tên miền trang đang mở.
+    const askKey = (toolName: string, toolInput: unknown, d: Decision): string | null => {
+      if (d.noAlways) return null;
+      if (isBrowserTool(toolName)) {
+        const url = (toolInput as { url?: unknown })?.url;
+        const host = typeof url === "string" ? hostOf(url) : browser.url ? hostOf(browser.url) : null;
+        return host ? `${toolName}@${host}` : null;
+      }
+      return alwaysKey(toolName, toolInput, project.path);
+    };
 
     const preToolUse: HookCallback = async (hookInput, _id, { signal }) => {
       if (hookInput.hook_event_name !== "PreToolUse") return {};
       const d = decideTool(hookInput.tool_name, hookInput.tool_input);
       let decision = d.decision;
-      if (decision === "ask") decision = (await this.askUser(taskId, hookInput.tool_name, hookInput.tool_input, signal, d.reason, askKey(hookInput.tool_name))) ? "allow" : "deny";
+      if (decision === "ask") decision = (await this.askUser(taskId, hookInput.tool_name, hookInput.tool_input, signal, d.reason, askKey(hookInput.tool_name, hookInput.tool_input, d))) ? "allow" : "deny";
       const reason = decision === "deny" && d.decision === "ask" ? "Anh Trung không cho phép thao tác này." : d.reason;
       return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: decision, permissionDecisionReason: reason,
         ...(decision === "allow" && d.updatedInput ? { updatedInput: d.updatedInput } : {}) } };
@@ -221,7 +246,7 @@ export class AgentRunner {
     const canUseTool: CanUseTool = async (toolName, toolInput, { signal }) => {
       const d = decideTool(toolName, toolInput);
       if (d.decision === "deny") return { behavior: "deny", message: d.reason };
-      if (d.decision === "allow" || (await this.askUser(taskId, toolName, toolInput, signal, d.reason, askKey(toolName)))) return { behavior: "allow", updatedInput: d.updatedInput ?? toolInput };
+      if (d.decision === "allow" || (await this.askUser(taskId, toolName, toolInput, signal, d.reason, askKey(toolName, toolInput, d)))) return { behavior: "allow", updatedInput: d.updatedInput ?? toolInput };
       return { behavior: "deny", message: "Anh Trung không cho phép thao tác này." };
     };
 
@@ -230,6 +255,13 @@ export class AgentRunner {
       return {};
     };
 
+    // Máy chủ trong tiến trình không dùng chung giữa các lần chạy: tạo mới mỗi lần.
+    const localServers = (): Record<string, McpServerConfig> => {
+      if (!this.deps.local) return {};
+      const win = settings.windowsEnabled ? this.deps.local.windows() : null;
+      return { [OFFICE_SERVER]: this.deps.local.office(project.path), ...(win ? { [WIN_SERVER]: win } : {}),
+        ...(this.deps.memory ? { [MEMORY_SERVER]: memoryServer(this.deps.memory, project.id) } : {}) };
+    };
     const resume = conv.sessionId;
     const makeOptions = (apiKey: string, abort: AbortController, budgetUsd: number): Options => ({
       cwd: project.path,
@@ -243,11 +275,11 @@ export class AgentRunner {
       env: agentEnv(apiKey, this.deps.appVersion),
       pathToClaudeCodeExecutable: this.deps.claudePath,
       hooks: { PreToolUse: [{ hooks: [preToolUse], timeout: HOOK_TIMEOUT_S }], PostToolUse: [{ hooks: [postToolUse] }] },
-      ...(chrome || Object.keys(connections.servers).length
-        ? { mcpServers: { ...connections.servers, ...(chrome ? { [CHROME_SERVER]: chromeServerConfig(chrome, this.deps.chrome!) } : {}) } } : {}),
+      ...(chrome || Object.keys(connections.servers).length || this.deps.local
+        ? { mcpServers: { ...connections.servers, ...localServers(), ...(chrome ? { [CHROME_SERVER]: chromeServerConfig(chrome, this.deps.chrome!) } : {}) } } : {}),
       canUseTool,
       ...(pluginPath ? { plugins: [{ type: "local" as const, path: pluginPath, skipMcpDiscovery: true }] } : {}),
-      ...(autoRouting ? { agents: ROUTED_AGENTS } : {}),
+      ...(Object.keys(agents).length ? { agents } : {}),
       ...(systemPrompt ? { systemPrompt } : {}),
       ...(resume ? { resume } : {}),
     });

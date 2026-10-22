@@ -9,6 +9,8 @@ import { SettingsPage } from "./SettingsPage";
 import { SkillsPage } from "./SkillsPage";
 import { ChromePage } from "./ChromePage";
 import { McpPage } from "./McpPage";
+import { DocsPage, WindowsPage } from "./ToolsPages";
+import { AgentsPage, MemoryPage } from "./KnowledgePages";
 import logo from "./logo.svg";
 import { Placeholder } from "./util";
 
@@ -17,12 +19,12 @@ const NAV: { id: string; label: string; todo?: boolean }[] = [
   { id: "projects", label: "Dự án" },
   { id: "tasks", label: "Công việc đang chạy" },
   { id: "skills", label: "Skills" },
-  { id: "agents", label: "Agents", todo: true },
+  { id: "agents", label: "Agents" },
   { id: "mcp", label: "MCP và công cụ" },
   { id: "chrome", label: "Chrome" },
-  { id: "windows", label: "Máy tính Windows", todo: true },
-  { id: "docs", label: "Tài liệu", todo: true },
-  { id: "memory", label: "Bộ nhớ", todo: true },
+  { id: "windows", label: "Máy tính Windows" },
+  { id: "docs", label: "Tài liệu" },
+  { id: "memory", label: "Bộ nhớ" },
   { id: "history", label: "Lịch sử" },
   { id: "cost", label: "Chi phí API" },
   { id: "settings", label: "Cài đặt" },
@@ -82,6 +84,10 @@ export function App() {
         {nav === "projects" && <ProjectsPage onOpenConversation={(id) => { setOpen({ conversationId: id, nonce: Date.now() }); go("chat"); }} />}
         {nav === "skills" && <SkillsPage />}
         {nav === "mcp" && <McpPage />}
+        {nav === "windows" && <WindowsPage settings={settings} onSettings={setSettings} />}
+        {nav === "docs" && <DocsPage />}
+        {nav === "agents" && <AgentsPage />}
+        {nav === "memory" && <MemoryPage />}
         {nav === "chrome" && <ChromePage settings={settings} onSettings={setSettings} />}
         {nav === "tasks" && <TasksPage />}
         {nav === "history" && <HistoryPage onOpen={(id) => { setOpen({ conversationId: id, nonce: Date.now() }); go("chat"); }} />}

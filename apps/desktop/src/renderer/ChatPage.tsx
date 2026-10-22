@@ -11,7 +11,7 @@ type Entry =
   | { key: string; kind: "pending-user"; text: string }
   | { key: string; kind: "note"; text: string; tone?: "danger" | "info" };
 
-interface PermReq { requestId: string; taskId: number; toolName: string; summary: string }
+interface PermReq { requestId: string; taskId: number; toolName: string; summary: string; canAlways: boolean }
 interface Warn { percent: number; message: string }
 interface Usage { inputTokens: number; outputTokens: number; costUsd: number }
 
@@ -94,15 +94,26 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
   }, []);
   useEffect(() => { bottomRef.current?.scrollIntoView({ block: "end" }); }, [entries]);
 
+  const loadSeq = useRef(0);
   const selectConv = useCallback(async (id: number | null) => {
+    const my = ++loadSeq.current;
     setConvId(id);
+    convRef.current = id;
     setError("");
-    if (id == null) { setEntries([]); setUsage(null); return; }
+    setUsage(null);
+    setEntries([]);
+    if (id == null) return;
     try {
       const items = await window.hub.conversationItems(id);
-      setEntries(items.map((item) => ({ key: `i${item.id}`, kind: "item", item })));
+      if (my !== loadSeq.current) return;             // đã chuyển sang hội thoại khác trong lúc chờ
+      const maxId = items.reduce((m, it) => Math.max(m, it.id), 0);
+      // Giữ các dòng đến bằng sự kiện trong lúc chờ tải (dòng mới hơn và bản nháp đang gõ).
+      setEntries((prev) => [
+        ...items.map((item): Entry => ({ key: `i${item.id}`, kind: "item", item })),
+        ...prev.filter((x) => (x.kind === "item" && x.item.id > maxId) || x.kind === "draft"),
+      ]);
     } catch (e) {
-      setEntries([{ key: nextKey(), kind: "note", text: String(e), tone: "danger" }]);
+      if (my === loadSeq.current) setEntries([{ key: nextKey(), kind: "note", text: String(e), tone: "danger" }]);
     }
   }, []);
 
@@ -136,9 +147,15 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
           setWarn({ percent: e.percent, message: e.message });
           break;
         case "permission-request":
-          setPerms((q) => [...q, { requestId: e.requestId, taskId: e.taskId, toolName: e.toolName, summary: e.summary }]);
+          setPerms((q) => [...q, { requestId: e.requestId, taskId: e.taskId, toolName: e.toolName, summary: e.summary, canAlways: e.canAlways }]);
+          break;
+        case "permission-resolved":
+          setPerms((q) => q.filter((p) => !e.requestIds.includes(p.requestId)));
           break;
         case "update":
+          break;
+        case "queue-failed":
+          setEntries((es) => [...es, { key: nextKey(), kind: "note", tone: "danger", text: `Việc xếp hàng không chạy được: ${e.message}` }]);
           break;
         case "text-delta": {
           if (!isShown(e.taskId)) break;
@@ -195,10 +212,17 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
 
   const send = async () => {
     const text = prompt.trim();
-    if (!text || running || !hasKey || projectId == null) return;
+    if (!text || !hasKey || projectId == null) return;
     setError("");
     try {
       const r = await window.hub.startTask({ conversationId: convId, projectId, prompt: text, model, effort, permission });
+      if (!r.ok && r.busy) {
+        // Đang bận (hội thoại này đang chạy hoặc đủ số việc song song): xếp hàng, tự chạy khi có chỗ.
+        await window.hub.enqueueTask({ conversationId: convId, projectId, prompt: text, model, effort, permission });
+        setPrompt("");
+        setEntries((es) => [...es, { key: nextKey(), kind: "note", tone: "info", text: `Đã xếp hàng: "${firstLine(text, 60)}". ${r.message ?? ""} Việc sẽ tự chạy khi có chỗ (xem mục Công việc đang chạy).` }]);
+        return;
+      }
       if (!r.ok) { setError(r.message ?? "Không gửi được."); return; }
       setPrompt("");
       setUsage(null);
@@ -280,7 +304,7 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
           </div>
 
           {permission === "full" && (
-            <div className="alert danger small">Đủ quyền: agent tự chạy lệnh, sửa/xoá tệp, gửi dữ liệu và thao tác web không hỏi anh. Vẫn giữ hạn mức chi phí; không đọc cookie/mã truy cập của trình duyệt.</div>
+            <div className="alert danger small">Đủ quyền: agent tự chạy lệnh, sửa/xoá tệp, gửi dữ liệu và thao tác web không hỏi anh, tức là có quyền như tài khoản Windows của anh. Vẫn giữ hạn mức chi phí; chạy mã trên trang web vẫn hỏi.</div>
           )}
           <div className="messages">
             {!hasKey && (
@@ -312,7 +336,7 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
               }}
             />
             <div className="col">
-              <button className="primary" disabled={running || !hasKey || noProject || !prompt.trim()} onClick={send}>Gửi</button>
+              <button className="primary" disabled={!hasKey || noProject || !prompt.trim()} onClick={send}>{running ? "Xếp hàng" : "Gửi"}</button>
               {running && <button className="danger-btn" onClick={stop}>Dừng</button>}
             </div>
           </div>
@@ -337,7 +361,7 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
             {perms.length > 1 && <div className="muted small">Còn {perms.length - 1} yêu cầu đang chờ.</div>}
             <div className="row end">
               <button className="danger-btn" onClick={() => answer(false)}>Từ chối</button>
-              <button onClick={() => answer(true, true)} title="Không hỏi lại loại thao tác này trong hội thoại này (đến khi tắt app)">Đồng ý luôn</button>
+              {perm.canAlways && <button onClick={() => answer(true, true)} title="Không hỏi lại đúng loại thao tác này (cùng lệnh, cùng thư mục hoặc cùng website) trong hội thoại này, đến khi tắt app">Đồng ý luôn</button>}
               <button className="primary" onClick={() => answer(true)}>Cho phép</button>
             </div>
           </div>

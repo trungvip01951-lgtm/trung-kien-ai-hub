@@ -108,6 +108,8 @@ export interface Settings {
   // Tự chia việc cho AI phụ đúng sức (Haiku/Sonnet/Opus, mức suy nghĩ riêng) trong cùng một việc.
   autoRouting: boolean;
   chrome: ChromeSettings;
+  // Cho agent điều khiển ứng dụng Windows (bấm, gõ vẫn hỏi theo mức quyền).
+  windowsEnabled: boolean;
 }
 
 // Sự kiện phần lõi đẩy lên giao diện trong lúc chạy việc.
@@ -117,10 +119,30 @@ export type HubEvent =
   | { type: "text-delta"; taskId: number; text: string }
   | { type: "item"; item: ChatItem }
   | { type: "usage"; taskId: number; costUsd: number; costIsEstimate: boolean; inputTokens: number; outputTokens: number }
-  | { type: "permission-request"; requestId: string; taskId: number; toolName: string; summary: string }
+  | { type: "permission-request"; requestId: string; taskId: number; toolName: string; summary: string; canAlways: boolean }
+  // Yêu cầu đã được trả lời tự động (cùng loại vừa "Đồng ý luôn", hoặc việc đã dừng): giao diện gỡ hộp hỏi.
+  | { type: "permission-resolved"; requestIds: string[] }
   | { type: "task-finished"; task: TaskRow; message: string }
+  | { type: "queue-failed"; queueId: number; message: string }
   | { type: "budget-warning"; scope: "day" | "cycle"; percent: number; message: string }
   | { type: "update"; status: "checking" | "available" | "none" | "downloading" | "ready" | "error"; version?: string; percent?: number; message?: string };
+
+// Bộ nhớ dài hạn theo dự án (projectId null: dùng chung mọi dự án).
+export type MemoryKind = "rule" | "fact" | "error" | "progress" | "note";
+export interface MemoryNote { id: number; projectId: number | null; kind: MemoryKind; title: string; content: string; createdAt: string; updatedAt: string }
+
+// AI chuyên môn (subagent): mặc định của app hoặc anh tự thêm.
+export interface SpecialistInfo { id: string; name: string; description: string; prompt: string; model: ModelId; effort: Effort; enabled: boolean; builtin: boolean }
+
+export interface BackupInfo { id: string; createdAt: string; reason: string; appVersion: string; bytes: number }
+
+// Lịch chạy việc tự động (chỉ khi app đang mở).
+export interface ScheduleRule { kind: "daily" | "weekly" | "hourly"; time: string; weekday: number; everyHours: number }
+export interface Schedule extends ScheduleRule {
+  id: number; name: string; projectId: number; prompt: string; model: ModelId; effort: Effort; permission: PermissionLevel;
+  enabled: boolean; lastRunAt: string | null; nextRunAt: string | null; lastTaskId: number | null;
+}
+export interface QueueItem { id: number; input: StartTaskInput; source: string; status: "waiting" | "started" | "failed" | "cancelled"; message: string | null; taskId: number | null; createdAt: string }
 
 export interface StartTaskInput {
   conversationId: number | null; projectId: number; prompt: string;
@@ -174,6 +196,24 @@ export interface HubApi {
   setExtensionToken(token: string): Promise<void>;
   hasExtensionToken(): Promise<boolean>;
   runningTasks(): Promise<{ taskId: number; conversationId: number }[]>;
+  enqueueTask(input: StartTaskInput): Promise<QueueItem>;
+  listQueue(): Promise<QueueItem[]>;
+  cancelQueue(id: number): Promise<void>;
+  listSchedules(): Promise<Schedule[]>;
+  saveSchedule(s: Omit<Schedule, "id" | "lastRunAt" | "nextRunAt" | "lastTaskId"> & { id?: number }): Promise<Schedule>;
+  deleteSchedule(id: number): Promise<void>;
+  runScheduleNow(id: number): Promise<QueueItem | null>;
+  listSpecialists(): Promise<SpecialistInfo[]>;
+  saveSpecialists(list: SpecialistInfo[]): Promise<SpecialistInfo[]>;
+  listMemory(projectId: number | null, query: string): Promise<MemoryNote[]>;
+  saveMemory(n: { id?: number; projectId: number | null; kind: MemoryKind; title: string; content: string }): Promise<MemoryNote>;
+  deleteMemory(id: number): Promise<void>;
+  checkIntegrity(): Promise<boolean>;
+  listBackups(): Promise<BackupInfo[]>;
+  createBackup(): Promise<BackupInfo>;
+  restoreBackup(id: string): Promise<{ ok: boolean; message: string }>;   // app khởi động lại
+  exportBackup(id: string): Promise<string | null>;
+  importBackup(): Promise<BackupInfo | null>;
 
   // Mở trình duyệt với hồ sơ riêng của app để anh Trung tự đăng nhập các website (app không xem mật khẩu).
   openBrowserProfile(): Promise<{ ok: boolean; message: string }>;
@@ -181,7 +221,7 @@ export interface HubApi {
   conversationItems(conversationId: number): Promise<ChatItem[]>;
   search(query: string): Promise<SearchHit[]>;
 
-  startTask(input: StartTaskInput): Promise<{ ok: boolean; taskId?: number; conversationId?: number; message?: string }>;
+  startTask(input: StartTaskInput): Promise<{ ok: boolean; busy?: boolean; taskId?: number; conversationId?: number; message?: string }>;
   stopTask(taskId: number): Promise<void>;
   answerPermission(requestId: string, allow: boolean, always?: boolean): Promise<void>;   // always: "Đồng ý luôn" trong hội thoại này
   runningTaskId(): Promise<number | null>;

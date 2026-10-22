@@ -1,3 +1,4 @@
+import { BackupSection } from "./ToolsPages";
 import { useEffect, useState } from "react";
 import { MODELS } from "../shared/contract";
 import type { ApiKeyInfo, Effort, ModelId, PermissionLevel, Settings } from "../shared/contract";
@@ -127,6 +128,7 @@ export function SettingsPage({ settings, onSettings, onKeyChanged }: {
           </label>
         </div>
       )}
+      <BackupSection />
       <div className="muted small">Trung Kiên AI Hub · phiên bản {version || "…"}</div>
     </div>
   );

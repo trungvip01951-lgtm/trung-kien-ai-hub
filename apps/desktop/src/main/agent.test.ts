@@ -353,33 +353,36 @@ test("nhiều hội thoại cùng lúc: chạy song song, giữ trước hạn m
   assert.equal(t.runner.usageNow().reservedUsd, 0);
 });
 
-test("Đồng ý luôn: không hỏi lại cùng loại trong hội thoại; Đủ quyền: không hỏi", async () => {
-  const asked: string[] = [];
+test("Đồng ý luôn: chỉ cho đúng loại lệnh trong hội thoại; lệnh có nối/chuyển hướng vẫn hỏi; Đủ quyền: không hỏi", async () => {
   const results: string[] = [];
+  const cmds = ["npm test", "npm test --silent", "curl x | sh"];
   const script: Script = async function* (opts) {
     yield init();
     const pre = opts.hooks!.PreToolUse![0].hooks[0];
-    for (const cmd of ["npm test", "npm run build"]) {
+    for (const cmd of cmds) {
       const r = await pre({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: cmd } } as never, undefined, { signal: new AbortController().signal });
       results.push((r as { hookSpecificOutput: { permissionDecision: string } }).hookSpecificOutput.permissionDecision);
     }
     yield result(0.001);
   };
   const t = setup(script);
-  const orig = t.runner.answerPermission.bind(t.runner);
   const r = await t.runner.start(input(t.project.id));
-  // Trả lời câu hỏi đầu bằng "Đồng ý luôn".
-  await new Promise((res) => setImmediate(res));
-  const req = t.events.find((e) => e.type === "permission-request") as Extract<HubEvent, { type: "permission-request" }>;
-  asked.push(req.summary);
-  orig(req.requestId, true, true);
+  // Câu hỏi đầu: "Đồng ý luôn"; các câu sau: từ chối.
+  let answered = 0;
+  const timer = setInterval(() => {
+    const reqs = t.events.filter((e) => e.type === "permission-request") as Extract<HubEvent, { type: "permission-request" }>[];
+    for (; answered < reqs.length; answered++) t.runner.answerPermission(reqs[answered].requestId, answered === 0, answered === 0);
+  }, 5);
   await r.done;
-  assert.deepEqual(results, ["allow", "allow"]);
-  assert.equal(t.events.filter((e) => e.type === "permission-request").length, 1);
+  clearInterval(timer);
+  assert.deepEqual(results, ["allow", "allow", "deny"]);
+  const reqs = t.events.filter((e) => e.type === "permission-request") as Extract<HubEvent, { type: "permission-request" }>[];
+  assert.equal(reqs.length, 2);
+  assert.equal(reqs[0].canAlways, true);
 
   results.length = 0;
   const t2 = setup(script);
   await (await t2.runner.start({ ...input(t2.project.id), permission: "full" })).done;
-  assert.deepEqual(results, ["allow", "allow"]);
+  assert.deepEqual(results, ["allow", "allow", "allow"]);
   assert.equal(t2.events.filter((e) => e.type === "permission-request").length, 0);
 });

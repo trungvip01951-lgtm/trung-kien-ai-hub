@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import { makePdf } from "./pdf";
 import { promisify } from "node:util";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
@@ -40,6 +42,16 @@ export async function runSmokeTest(outFile?: string): Promise<boolean> {
     checks.push({ name: "playwright-mcp-runs", pass: stdout.includes("Playwright MCP"), detail: cli });
   } catch (err) {
     checks.push({ name: "playwright-mcp-runs", pass: false, detail: String(err) });
+  }
+
+  // 3c. Xuất PDF bằng cửa sổ ẩn (công cụ pdf_from_html).
+  try {
+    const f = path.join(os.tmpdir(), `tkhub-smoke-${process.pid}.pdf`);
+    await makePdf("<h1>Trang thử Khách Mẫu A</h1>", f);
+    const head = readFileSync(f).subarray(0, 5).toString();
+    checks.push({ name: "pdf-export", pass: head === "%PDF-", detail: f });
+  } catch (err) {
+    checks.push({ name: "pdf-export", pass: false, detail: String(err) });
   }
 
   // 4. SQLite có sẵn trong Electron hỗ trợ FTS5 (lịch sử và tìm kiếm cần).

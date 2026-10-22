@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
@@ -44,12 +44,13 @@ async function fakeOAuth() {
 
 const cipher = { encrypt: (s: string) => Buffer.from(s.split("").reverse().join("")), decrypt: (b: Buffer) => b.toString().split("").reverse().join("") };
 
-test("đăng nhập OAuth: đăng ký client, mở trang đồng ý, nhận mã, làm mới mã khi sắp hết hạn", async () => {
+test("đăng nhập OAuth: đăng ký client, mở trang đồng ý, nhận mã, làm mới mã khi sắp hết hạn", async (t0) => {
   const f = await fakeOAuth();
+  t0.after(() => f.srv.close());
   const dir = mkdtempSync(path.join(os.tmpdir(), "ket-noi-"));
   // "Trình duyệt" giả: mở trang cấp quyền, đi theo chuyển hướng về localhost:8765/callback.
   const opened: string[] = [];
-  const c = new Connections(path.join(dir, "c.json"), path.join(dir, "c.bin"), cipher, async (url) => { opened.push(url); await fetch(url); });
+  const c = new Connections(path.join(dir, "c.json"), path.join(dir, "c.bin"), cipher, async (url) => { opened.push(url); await fetch(url); }, fetch, { port: 0 });
   const r = c.add("custom", "Dịch vụ mẫu", f.url);
   assert.ok(r.ok, r.message);
   assert.equal(c.info()[0].status, "needs-login");
@@ -68,13 +69,22 @@ test("đăng nhập OAuth: đăng ký client, mở trang đồng ý, nhận mã,
   assert.deepEqual(t.notes, []);
   assert.equal((t.servers["dich-vu-mau"] as { headers: Record<string, string> }).headers.Authorization, "Bearer ma-truy-cap-2");
   assert.ok(f.log.includes("grant=refresh_token"));
+  // Hai việc bắt đầu cùng lúc khi mã sắp hết hạn: chỉ làm mới một lần.
+  const sec = JSON.parse(cipher.decrypt(readFileSync(path.join(dir, "c.bin"))));
+  sec["dich-vu-mau"].tokens.savedAt = Date.now() - 3590 * 1000;
+  writeFileSync(path.join(dir, "c.bin"), cipher.encrypt(JSON.stringify(sec)));
+  const cc = new Connections(path.join(dir, "c.json"), path.join(dir, "c.bin"), cipher, () => {}, fetch, { port: 0 });
+  const before = f.log.filter((x) => x === "grant=refresh_token").length;
+  const [a, b] = await Promise.all([cc.forTask(), cc.forTask()]);
+  assert.equal(f.log.filter((x) => x === "grant=refresh_token").length, before + 1);
+  assert.deepEqual([a.notes, b.notes], [[], []]);
   // Còn hạn dài: không gọi mạng nữa.
   const n = f.log.length;
-  await c.forTask();
+  await cc.forTask();
   assert.equal(f.log.length, n);
 
   // Mở lại app (đọc từ tệp): vẫn còn kết nối.
-  const c2 = new Connections(path.join(dir, "c.json"), path.join(dir, "c.bin"), cipher, () => {});
+  const c2 = new Connections(path.join(dir, "c.json"), path.join(dir, "c.bin"), cipher, () => {}, fetch, { port: 0 });
   assert.equal(c2.info()[0].status, "connected");
   c2.logout(r.id!);
   assert.equal(c2.info()[0].status, "needs-login");

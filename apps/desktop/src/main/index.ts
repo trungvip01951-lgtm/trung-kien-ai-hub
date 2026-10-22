@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from "electro
 import { listSessions, query } from "@anthropic-ai/claude-agent-sdk";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { HubEvent, InventoryRow, OldSession, Settings, StartTaskInput } from "../shared/contract";
+import type { HubEvent, InventoryRow, OldSession, Schedule, Settings, StartTaskInput } from "../shared/contract";
 import { AgentRunner } from "./agent";
 import { validateLimits } from "./budget";
 import { HubDb } from "./db";
@@ -11,6 +11,13 @@ import { isThinhVuong, scanFolder } from "./inventory";
 import { isInside } from "./policy";
 import { SkillStore } from "./skills";
 import { Connections } from "./connections";
+import { Backups } from "./backup";
+import { Jobs } from "./jobs";
+import { officeServer, windowsServer } from "./local-tools";
+import { validateRule } from "./schedule";
+import { makePdf } from "./pdf";
+import { mergeSpecialists, toAgentDefinitions } from "./specialists";
+import type { SpecialistInfo } from "../shared/contract";
 import { claudeExecutablePath, playwrightMcpCliPath } from "./sdk-path";
 import { profilePaths } from "./chrome";
 import { createRequire } from "node:module";
@@ -70,7 +77,7 @@ async function openBrowserProfile(db: HubDb, runner: AgentRunner, dataDir: strin
   }
 }
 
-function registerIpc(db: HubDb, keys: KeyRing, runner: AgentRunner, skills: SkillStore, conns: Connections, ext: ExtensionToken) {
+function registerIpc(db: HubDb, keys: KeyRing, runner: AgentRunner, skills: SkillStore, conns: Connections, ext: ExtensionToken, jobs: Jobs, backups: Backups) {
   const h = (ch: string, fn: (...a: any[]) => unknown) => ipcMain.handle(ch, (_e, ...a) => fn(...a));
   h("appVersion", () => app.getVersion());
   h("hasApiKey", () => keys.has());
@@ -189,11 +196,63 @@ function registerIpc(db: HubDb, keys: KeyRing, runner: AgentRunner, skills: Skil
   h("setExtensionToken", (t: string) => ext.set(String(t ?? "")));
   h("hasExtensionToken", () => ext.get() !== null);
   h("runningTasks", () => runner.runningTasks());
+  h("enqueueTask", (input: StartTaskInput) => jobs.enqueue(input, "Chat"));
+  h("listQueue", () => db.listQueue());
+  h("cancelQueue", (id: number) => jobs.cancel(Number(id)));
+  h("listSchedules", () => db.listSchedules());
+  h("saveSchedule", (s: Schedule) => {
+    const err = validateRule(s);
+    if (err) throw new Error(err);
+    if (!s.prompt?.trim() || !db.getProject(Number(s.projectId))) throw new Error("Lịch cần dự án và nội dung việc.");
+    return jobs.saveSchedule({ ...s, projectId: Number(s.projectId), name: String(s.name || s.prompt).slice(0, 80) });
+  });
+  h("deleteSchedule", (id: number) => db.deleteSchedule(Number(id)));
+  h("runScheduleNow", (id: number) => {
+    const s = db.getSchedule(Number(id));
+    if (!s) return null;
+    return jobs.enqueue({ conversationId: null, projectId: s.projectId, prompt: s.prompt, model: s.model, effort: s.effort, permission: s.permission }, `Lịch #${s.id} ${s.name}`);
+  });
+  h("listSpecialists", () => mergeSpecialists(db.getJson<SpecialistInfo[]>("specialists")));
+  h("saveSpecialists", (list: SpecialistInfo[]) => {
+    const clean = (Array.isArray(list) ? list : []).filter((s) => /^[a-z0-9-]{2,40}$/.test(String(s?.id)) && String(s.name ?? "").trim())
+      .map((s) => ({ id: s.id, name: String(s.name).slice(0, 80), description: String(s.description ?? "").slice(0, 2000), prompt: String(s.prompt ?? "").slice(0, 8000),
+        model: ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"].includes(s.model) ? s.model : "claude-sonnet-5-5",
+        effort: ["low", "medium", "high", "xhigh"].includes(s.effort) ? s.effort : "medium", enabled: s.enabled !== false, builtin: false }));
+    db.setJson("specialists", clean);
+    return mergeSpecialists(clean);
+  });
+  h("listMemory", (pid: number | null, q: string) => db.listMemory(pid == null ? null : Number(pid), 200, String(q ?? "")));
+  h("saveMemory", (n: { id?: number; projectId: number | null; kind: string; title: string; content: string }) => {
+    const kind = ["rule", "fact", "error", "progress", "note"].includes(n.kind) ? n.kind as "rule" : "note";
+    if (!String(n.title ?? "").trim() || !String(n.content ?? "").trim()) throw new Error("Cần tiêu đề và nội dung.");
+    return db.upsertMemory({ id: n.id ? Number(n.id) : undefined, projectId: n.projectId == null ? null : Number(n.projectId), kind,
+      title: String(n.title).trim().slice(0, 200), content: String(n.content).trim().slice(0, 8000) }).note;
+  });
+  h("deleteMemory", (id: number) => db.deleteMemory(Number(id)));
+  h("checkIntegrity", () => db.integrityOk());
+  h("listBackups", () => backups.list());
+  h("createBackup", () => backups.create("manual"));
+  h("restoreBackup", (id: string) => {
+    if (runner.runningTaskId() !== null) return { ok: false, message: "Đang chạy việc. Chờ xong rồi khôi phục." };
+    const r = backups.requestRestore(String(id));
+    if (r.ok) setTimeout(() => { app.relaunch(); app.exit(0); }, 500);
+    return r;
+  });
+  h("exportBackup", async (id: string) => {
+    const r = await dialog.showOpenDialog(win!, { title: "Chọn thư mục để lưu bản sao lưu", properties: ["openDirectory", "createDirectory"] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return backups.exportTo(String(id), r.filePaths[0]);
+  });
+  h("importBackup", async () => {
+    const r = await dialog.showOpenDialog(win!, { title: "Chọn thư mục bản sao lưu (có manifest.json)", properties: ["openDirectory"] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return backups.importFrom(r.filePaths[0]);
+  });
   h("openBrowserProfile", () => openBrowserProfile(db, runner, app.getPath("userData")));
   h("startTask", async (input: StartTaskInput) => {
     if (browserWindowOpen) return { ok: false, message: "Trình duyệt của app đang mở để đăng nhập. Đóng cửa sổ đó rồi giao việc." };
     const r = await runner.start(input);
-    return { ok: r.ok, taskId: r.taskId, conversationId: r.conversationId, message: r.message };
+    return { ok: r.ok, busy: r.busy, taskId: r.taskId, conversationId: r.conversationId, message: r.message };
   });
   h("stopTask", (id: number) => runner.stop(Number(id)));
   h("answerPermission", (id: string, allow: boolean, always?: boolean) => runner.answerPermission(String(id), allow === true, always === true));
@@ -226,8 +285,14 @@ async function startApp() {
   // Dữ liệu tách khỏi thư mục cài: %APPDATA%\trung-kien-ai-hub
   const dataDir = app.getPath("userData");
   mkdirSync(dataDir, { recursive: true });
+  let dbRef: HubDb | null = null;
+  const backups = new Backups(dataDir, (f) => dbRef!.snapshot(f), app.getVersion());
+  // Khôi phục đã yêu cầu ở lần chạy trước: làm trước khi mở cơ sở dữ liệu.
+  const restored = backups.applyPendingRestore();
   const db = new HubDb(path.join(dataDir, "hub.db"));
+  dbRef = db;
   db.markInterrupted();
+  try { backups.autoIfDue(); } catch (err) { console.error("Tự sao lưu lỗi:", err); }
   const keys = new KeyRing(path.join(dataDir, "api-keys.bin"), path.join(dataDir, "api-keys-state.json"), path.join(dataDir, "api-key.bin"));
   const skills = new SkillStore(path.join(dataDir, "skills"));
   const cipher = { encrypt: (s: string) => safeStorage.encryptString(s), decrypt: (b: Buffer) => safeStorage.decryptString(b) };
@@ -238,8 +303,15 @@ async function startApp() {
     db, query, emit, keys, skills, claudePath: claudeExecutablePath(), appVersion: app.getVersion(),
     chrome: { nodeBinary: process.execPath, cliPath: playwrightMcpCliPath(), ...profilePaths(dataDir), extensionToken: () => ext.get() },
     connections: conns,
+    specialists: () => toAgentDefinitions(mergeSpecialists(db.getJson<SpecialistInfo[]>("specialists"))),
+    memory: db,
+    local: {
+      windows: () => (process.platform === "win32" ? windowsServer() : null),
+      office: (projectDir) => officeServer({ backupDir: path.join(dataDir, "office-backup"), projectDir, makePdf }),
+    },
   });
-  registerIpc(db, keys, runner, skills, conns, ext);
+  const jobs = new Jobs(db, runner, emit);
+  registerIpc(db, keys, runner, skills, conns, ext, jobs, backups);
 
   win = new BrowserWindow({
     width: 1280, height: 820, minWidth: 960, minHeight: 600, title: "Trung Kiên AI Hub",
@@ -251,6 +323,8 @@ async function startApp() {
   win.webContents.on("will-navigate", (e) => e.preventDefault());
   await win.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
   startUpdater(emit);
+  jobs.start();
+  if (restored) dialog.showMessageBox(win, { message: `Đã khôi phục bản sao lưu ${restored}. Trạng thái trước khi khôi phục được cất trong mục Sao lưu.` }).catch(() => {});
 }
 
 app.on("window-all-closed", () => app.quit());

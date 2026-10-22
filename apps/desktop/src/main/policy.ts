@@ -15,7 +15,8 @@ const FILE_EDIT = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit"]);
 // Tệp trong dự án nhưng sửa vào là đổi cấu hình agent, hook hoặc git: luôn hỏi.
 const PROTECTED = [/^\.claude([\\/]|$)/i, /^\.mcp\.json$/i, /^\.git([\\/]|$)/i, /^CLAUDE\.md$/i, /^\.env/i];
 
-export type Decision = { decision: "allow" | "deny" | "ask"; reason: string; updatedInput?: Record<string, unknown> };
+// noAlways: hỏi mà không cho nút "Đồng ý luôn" (thao tác quá rộng hoặc quá nhạy cảm để cho hẳn).
+export type Decision = { decision: "allow" | "deny" | "ask"; reason: string; updatedInput?: Record<string, unknown>; noAlways?: boolean };
 
 // Đường dẫn thật (giải symlink/junction); đích chưa tồn tại thì giải thư mục cha gần nhất.
 function realish(p: string): string {
@@ -39,6 +40,24 @@ function relInside(dir: string, target: string): string | null {
 }
 
 export function isInside(dir: string, target: string): boolean { return relInside(dir, target) !== null; }
+
+// Khoá cho nút "Đồng ý luôn": hẹp đúng phạm vi được cho. null = không cho đồng ý luôn.
+// - Lệnh: lệnh đơn giản tính theo 2 từ đầu ("npm test"), lệnh có nối/chuyển hướng tính đúng nguyên lệnh.
+// - Tệp: theo thư mục chứa tệp. Web: theo tên miền. Còn lại: theo tên công cụ.
+export function alwaysKey(toolName: string, input: unknown, projectDir: string): string | null {
+  const i = (input ?? {}) as Record<string, unknown>;
+  if (typeof i.command === "string") {
+    const cmd = i.command.trim();
+    if (/[;&|\`$<>(){}\n\r]/.test(cmd)) return `${toolName}=${cmd}`;
+    return `${toolName}~${cmd.split(/\s+/).slice(0, 2).join(" ")}`;
+  }
+  if (typeof i.url === "string") {
+    try { return `${toolName}@${new URL(i.url).hostname.toLowerCase()}`; } catch { return null; }
+  }
+  const f = fileArg(input) ?? (typeof i.file === "string" ? i.file : null);
+  if (f) return `${toolName}@dir:${path.dirname(path.resolve(projectDir, f)).toLowerCase()}`;
+  return toolName;
+}
 
 function fileArg(input: unknown): string | null {
   const i = input as Record<string, unknown> | null;
@@ -81,7 +100,7 @@ export function decide(level: PermissionLevel, toolName: string, input: unknown,
     const p = fileArg(input);
     const rel = p ? relInside(projectDir, path.resolve(projectDir, p)) : null;
     if (rel === null) return { decision: "ask", reason: "Sửa file ngoài thư mục dự án" };
-    if (PROTECTED.some((re) => re.test(rel))) return { decision: "ask", reason: "Sửa tệp cấu hình agent/git của dự án" };
+    if (PROTECTED.some((re) => re.test(rel))) return { decision: "ask", reason: "Sửa tệp cấu hình agent/git của dự án", noAlways: true };
     return { decision: "allow", reason: "Sửa file trong dự án" };
   }
 

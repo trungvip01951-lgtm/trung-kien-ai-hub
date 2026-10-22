@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import type { ChatItem, Conversation, InventoryRow, ItemKind, Project, SearchHit, Settings, TaskRow, TaskStatus } from "../shared/contract";
+import type { ChatItem, Conversation, InventoryRow, ItemKind, MemoryKind, MemoryNote, Project, QueueItem, Schedule, SearchHit, Settings, StartTaskInput, TaskRow, TaskStatus } from "../shared/contract";
 import { DEFAULT_LIMITS } from "./budget";
 
 // Lưu trữ cục bộ bằng SQLite có sẵn trong Node (node:sqlite), tìm kiếm bằng FTS5.
@@ -8,7 +8,7 @@ import { DEFAULT_LIMITS } from "./budget";
 export const DEFAULT_SETTINGS: Settings = {
   limits: DEFAULT_LIMITS, defaultModel: "claude-sonnet-5-5", defaultEffort: "medium",
   defaultPermission: "write", theme: "system", autoRouting: true,
-  chrome: { enabled: true, mode: "app", browser: "chrome", sites: [] },
+  chrome: { enabled: true, mode: "app", browser: "chrome", sites: [] }, windowsEnabled: true,
 };
 
 const SCHEMA = `
@@ -69,6 +69,27 @@ export class HubDb {
         if (!cols("projects").includes("instructions")) this.db.exec("ALTER TABLE projects ADD COLUMN instructions TEXT NOT NULL DEFAULT ''");
         this.db.exec("CREATE TABLE IF NOT EXISTS inventory (path TEXT PRIMARY KEY, data TEXT NOT NULL, scanned_at TEXT NOT NULL)");
       },
+      // 0.5.0: hàng đợi công việc, lịch chạy.
+      () => {
+        this.db.exec(`CREATE TABLE IF NOT EXISTS queue (id INTEGER PRIMARY KEY, input TEXT NOT NULL, source TEXT NOT NULL,
+          status TEXT NOT NULL, message TEXT, task_id INTEGER, created_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS schedules (id INTEGER PRIMARY KEY, data TEXT NOT NULL, enabled INTEGER NOT NULL,
+          last_run_at TEXT, next_run_at TEXT, last_task_id INTEGER);`);
+      },
+      // 0.5.0: bộ nhớ dài hạn (ghi chú theo dự án, tìm bằng FTS5).
+      () => {
+        this.db.exec(`CREATE TABLE IF NOT EXISTS memory (id INTEGER PRIMARY KEY, project_id INTEGER, kind TEXT NOT NULL, title TEXT NOT NULL,
+          content TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS memory_proj ON memory(project_id, updated_at);
+        CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(title, content, content='memory', content_rowid='id');
+        CREATE TRIGGER IF NOT EXISTS memory_ai AFTER INSERT ON memory BEGIN
+          INSERT INTO memory_fts(rowid, title, content) VALUES (new.id, new.title, new.content); END;
+        CREATE TRIGGER IF NOT EXISTS memory_ad AFTER DELETE ON memory BEGIN
+          INSERT INTO memory_fts(memory_fts, rowid, title, content) VALUES ('delete', old.id, old.title, old.content); END;
+        CREATE TRIGGER IF NOT EXISTS memory_au AFTER UPDATE ON memory BEGIN
+          INSERT INTO memory_fts(memory_fts, rowid, title, content) VALUES ('delete', old.id, old.title, old.content);
+          INSERT INTO memory_fts(rowid, title, content) VALUES (new.id, new.title, new.content); END;`);
+      },
     ];
     const v = Number((this.db.prepare("PRAGMA user_version").get() as Row).user_version);
     for (let i = v; i < steps.length; i++) {
@@ -78,6 +99,95 @@ export class HubDb {
   }
 
   close() { this.db.close(); }
+
+  // Bản sao nhất quán của cơ sở dữ liệu (dùng khi sao lưu lúc app đang chạy).
+  snapshot(file: string) {
+    this.db.prepare("VACUUM INTO ?").run(file);
+  }
+
+  enqueue(input: StartTaskInput, source: string): QueueItem {
+    const r = this.db.prepare("INSERT INTO queue(input, source, status, created_at) VALUES(?,?, 'waiting', ?)").run(JSON.stringify(input), source, now());
+    return this.queueItem(Number(r.lastInsertRowid))!;
+  }
+  queueItem(id: number): QueueItem | null {
+    const r = this.db.prepare("SELECT * FROM queue WHERE id=?").get(id) as Row | undefined;
+    return r ? toQueue(r) : null;
+  }
+  listQueue(limit = 100): QueueItem[] {
+    return (this.db.prepare("SELECT * FROM queue ORDER BY CASE status WHEN 'waiting' THEN 0 ELSE 1 END, id DESC LIMIT ?").all(limit) as Row[]).map(toQueue);
+  }
+  waitingQueue(): QueueItem[] {
+    return (this.db.prepare("SELECT * FROM queue WHERE status='waiting' ORDER BY id").all() as Row[]).map(toQueue);
+  }
+  setQueueStatus(id: number, status: QueueItem["status"], message: string | null, taskId: number | null = null) {
+    this.db.prepare("UPDATE queue SET status=?, message=?, task_id=COALESCE(?, task_id) WHERE id=?").run(status, message, taskId, id);
+  }
+
+  // Giá trị JSON lưu theo khoá trong bảng settings (ví dụ danh sách Agent anh đã sửa).
+  getJson<T>(key: string): T | null {
+    const r = this.db.prepare("SELECT value FROM settings WHERE key=?").get(key) as Row | undefined;
+    return r ? (JSON.parse(String(r.value)) as T) : null;
+  }
+  setJson(key: string, v: unknown) {
+    this.db.prepare("INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(key, JSON.stringify(v));
+  }
+
+  // Bộ nhớ: cùng dự án + cùng tiêu đề thì cập nhật (không tạo trùng).
+  upsertMemory(n: { id?: number; projectId: number | null; kind: MemoryKind; title: string; content: string }): { note: MemoryNote; updated: boolean } {
+    const t = now();
+    const found = n.id ? (this.db.prepare("SELECT id FROM memory WHERE id=?").get(n.id) as Row | undefined)
+      : (this.db.prepare("SELECT id FROM memory WHERE project_id IS ? AND lower(title)=lower(?)").get(n.projectId, n.title) as Row | undefined);
+    if (found) {
+      this.db.prepare("UPDATE memory SET project_id=?, kind=?, title=?, content=?, updated_at=? WHERE id=?").run(n.projectId, n.kind, n.title, n.content, t, Number(found.id));
+      return { note: this.getMemory(Number(found.id))!, updated: true };
+    }
+    const r = this.db.prepare("INSERT INTO memory(project_id, kind, title, content, created_at, updated_at) VALUES(?,?,?,?,?,?)").run(n.projectId, n.kind, n.title, n.content, t, t);
+    return { note: this.getMemory(Number(r.lastInsertRowid))!, updated: false };
+  }
+  getMemory(id: number): MemoryNote | null {
+    const r = this.db.prepare("SELECT * FROM memory WHERE id=?").get(id) as Row | undefined;
+    return r ? toMemory(r) : null;
+  }
+  deleteMemory(id: number) { this.db.prepare("DELETE FROM memory WHERE id=?").run(id); }
+  // Ghi chú của dự án và ghi chú dùng chung; có từ khoá thì tìm bằng FTS.
+  listMemory(projectId: number | null, limit: number, query = ""): MemoryNote[] {
+    const terms = ftsTerms(query);
+    if (!terms) {
+      return (this.db.prepare("SELECT * FROM memory WHERE project_id IS ? OR project_id IS NULL ORDER BY updated_at DESC LIMIT ?").all(projectId, limit) as Row[]).map(toMemory);
+    }
+    return (this.db.prepare(`SELECT m.* FROM memory_fts JOIN memory m ON m.id = memory_fts.rowid
+      WHERE memory_fts MATCH ? AND (m.project_id IS ? OR m.project_id IS NULL) ORDER BY rank LIMIT ?`).all(terms, projectId, limit) as Row[]).map(toMemory);
+  }
+  searchMemory(projectId: number, query: string, limit: number): MemoryNote[] { return this.listMemory(projectId, limit, query); }
+  // Lịch sử chat của riêng dự án (không lẫn dự án khác).
+  searchHistory(projectId: number, query: string, limit: number) {
+    const terms = ftsTerms(query);
+    if (!terms) return [];
+    const rows = this.db.prepare(`SELECT i.conversation_id, i.created_at, snippet(items_fts, 0, '[', ']', '…', 16) AS snip
+      FROM items_fts JOIN items i ON i.id = items_fts.rowid JOIN conversations c ON c.id = i.conversation_id
+      WHERE items_fts MATCH ? AND c.project_id = ? ORDER BY rank LIMIT ?`).all(terms, projectId, limit) as Row[];
+    return rows.map((r) => ({ conversationId: Number(r.conversation_id), snippet: String(r.snip), createdAt: String(r.created_at) }));
+  }
+
+  saveSchedule(s: Omit<Schedule, "id" | "lastRunAt" | "lastTaskId"> & { id?: number }): Schedule {
+    const { id, enabled, nextRunAt, ...data } = s;
+    if (id) {
+      this.db.prepare("UPDATE schedules SET data=?, enabled=?, next_run_at=? WHERE id=?").run(JSON.stringify(data), enabled ? 1 : 0, nextRunAt, id);
+      return this.getSchedule(id)!;
+    }
+    const r = this.db.prepare("INSERT INTO schedules(data, enabled, next_run_at) VALUES(?,?,?)").run(JSON.stringify(data), enabled ? 1 : 0, nextRunAt);
+    return this.getSchedule(Number(r.lastInsertRowid))!;
+  }
+  getSchedule(id: number): Schedule | null {
+    const r = this.db.prepare("SELECT * FROM schedules WHERE id=?").get(id) as Row | undefined;
+    return r ? toSchedule(r) : null;
+  }
+  listSchedules(): Schedule[] { return (this.db.prepare("SELECT * FROM schedules ORDER BY id").all() as Row[]).map(toSchedule); }
+  deleteSchedule(id: number) { this.db.prepare("DELETE FROM schedules WHERE id=?").run(id); }
+  markScheduleRun(id: number, at: string, next: string | null) {
+    this.db.prepare("UPDATE schedules SET last_run_at=?, next_run_at=? WHERE id=?").run(at, next, id);
+  }
+  setScheduleTask(id: number, taskId: number) { this.db.prepare("UPDATE schedules SET last_task_id=? WHERE id=?").run(taskId, id); }
 
   // Việc còn "đang chạy" khi mở app nghĩa là lần trước app bị tắt giữa chừng.
   markInterrupted(): number {
@@ -259,6 +369,21 @@ function toTask(r: Row): TaskRow {
     inputTokens: Number(r.input_tokens), outputTokens: Number(r.output_tokens), cacheReadTokens: Number(r.cache_read_tokens),
     cacheWriteTokens: Number(r.cache_write_tokens), stopReason: (r.stop_reason as string) ?? null,
     createdAt: String(r.created_at), finishedAt: (r.finished_at as string) ?? null };
+}
+function ftsTerms(q: string): string {
+  return q.split(/\s+/).filter(Boolean).slice(0, 12).map((w) => `"${w.replace(/"/g, '""')}"`).join(" OR ");
+}
+function toMemory(r: Row): MemoryNote {
+  return { id: Number(r.id), projectId: r.project_id == null ? null : Number(r.project_id), kind: r.kind as MemoryKind, title: String(r.title),
+    content: String(r.content), createdAt: String(r.created_at), updatedAt: String(r.updated_at) };
+}
+function toQueue(r: Row): QueueItem {
+  return { id: Number(r.id), input: JSON.parse(String(r.input)), source: String(r.source), status: r.status as QueueItem["status"],
+    message: (r.message as string) ?? null, taskId: r.task_id == null ? null : Number(r.task_id), createdAt: String(r.created_at) };
+}
+function toSchedule(r: Row): Schedule {
+  return { ...JSON.parse(String(r.data)), id: Number(r.id), enabled: Number(r.enabled) === 1, lastRunAt: (r.last_run_at as string) ?? null,
+    nextRunAt: (r.next_run_at as string) ?? null, lastTaskId: r.last_task_id == null ? null : Number(r.last_task_id) };
 }
 function toItem(r: Row): ChatItem {
   return { id: Number(r.id), taskId: Number(r.task_id), kind: r.kind as ItemKind, text: String(r.text),

@@ -140,10 +140,12 @@ export function decideBrowser(s: ChromeSettings, toolName: string, input: unknow
   // Tên tệp tự đặt được tính từ thư mục dự án (ghi đè được tệp dự án): không cho, để app tự lưu vào thư mục của app.
   if (i.filename !== undefined) return { decision: "deny", reason: "Không đặt tên tệp; ảnh và snapshot tự lưu vào thư mục của app." };
   if (BLOCKED.test(t)) return { decision: "deny", reason: "Không cho đọc/sửa cookie, bộ nhớ trang, mạng hoặc chạy mã Playwright tuỳ ý." };
-  if (full) return { decision: "allow", reason: "Đủ quyền" };
+  // Chạy mã trên trang đọc được cookie/bộ nhớ trang: luôn hỏi, kể cả Đủ quyền (yêu cầu gốc: không lấy cookie/token).
   if (t === "browser_evaluate") {
-    return readOnly ? { decision: "deny", reason: "Chế độ Chỉ đọc: không chạy mã trên trang." } : { decision: "ask", reason: "Chạy mã JavaScript trên trang (có thể đọc dữ liệu trang)" };
+    return readOnly ? { decision: "deny", reason: "Chế độ Chỉ đọc: không chạy mã trên trang." }
+      : { decision: "ask", reason: "Chạy mã JavaScript trên trang (có thể đọc cookie, dữ liệu trang)", noAlways: true };
   }
+  if (full) return { decision: "allow", reason: "Đủ quyền" };
   if (t === "browser_navigate" || (t === "browser_tabs" && typeof i.url === "string")) {
     const url = String(i.url ?? "");
     if (!hostOf(url)) return { decision: "deny", reason: "Chỉ mở trang http/https." };
@@ -166,7 +168,7 @@ export function decideBrowser(s: ChromeSettings, toolName: string, input: unknow
     if (mode === "auto" && known && !isRiskyAction(t, i) && !texts.some((x) => x && RISKY.test(x))) return { decision: "allow", reason: `${host}: ${MODE_LABEL.auto}` };
     const seen = texts.filter((x): x is string => !!x).map((x) => x.replace(/\s*\[ref=[\w-]+\].*$/, "").replace(/^- /, ""));
     const onPage = seen.length ? ` · chữ trên trang: ${seen.join("; ")}` : "";
-    return { decision: "ask", reason: (mode === "auto" ? `Thao tác có thể đăng/lưu/gửi/sửa trên ${host}` : `Thao tác trên ${host}`) + onPage };
+    return { decision: "ask", noAlways: mode === "auto" || !mode || t === "browser_file_upload", reason: (mode === "auto" ? `Thao tác có thể đăng/lưu/gửi/sửa trên ${host}` : `Thao tác trên ${host}`) + onPage };
   }
   if (readOnly) return { decision: "deny", reason: `Chế độ Chỉ đọc: không dùng công cụ trình duyệt ${t}.` };
   return { decision: "ask", reason: `Công cụ trình duyệt ${t}` };

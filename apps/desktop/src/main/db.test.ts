@@ -72,3 +72,28 @@ test("nâng cấp tệp dữ liệu bản 0.2.x: thêm hướng dẫn dự án, 
   assert.ok(db.sessionIdsOfProject(p.id).has("phien-cu-1"));
   db.close();
 });
+
+test("bộ nhớ: thêm, trùng tiêu đề thì cập nhật, tìm theo dự án, tìm lịch sử chat đúng dự án", () => {
+  const db = new HubDb(":memory:");
+  const a = db.addProject("Web A", "/tmp/web-a");
+  const b = db.addProject("Web B", "/tmp/web-b");
+  const r1 = db.upsertMemory({ projectId: a.id, kind: "rule", title: "Giọng văn", content: "Viết như người bán máy bơm lâu năm" });
+  const r2 = db.upsertMemory({ projectId: a.id, kind: "rule", title: "giọng văn", content: "Ngắn gọn, có số liệu" });
+  assert.equal(r2.updated, true);
+  assert.equal(r2.note.id, r1.note.id);
+  db.upsertMemory({ projectId: null, kind: "rule", title: "Ngày tháng", content: "Viết dd/mm/yyyy" });
+  db.upsertMemory({ projectId: b.id, kind: "fact", title: "Bí mật B", content: "số liệu riêng web B" });
+  assert.deepEqual(db.listMemory(a.id, 10).map((n) => n.title).sort(), ["Ngày tháng", "giọng văn"]);
+  assert.deepEqual(db.searchMemory(a.id, "ngắn số liệu", 10).map((n) => n.title), ["giọng văn"]);
+  assert.equal(db.searchMemory(a.id, "riêng", 10).length, 0);           // không lẫn dự án B
+  const cA = db.createConversation(a.id, "x");
+  const cB = db.createConversation(b.id, "y");
+  const t = db.createTask({ conversationId: cA.id, prompt: "x", model: "claude-haiku-5-5", effort: "low", permission: "read", allowanceUsd: 1 });
+  db.addItem({ taskId: t, conversationId: cA.id, kind: "assistant", text: "Đã sửa sitemap bomnuocthai" });
+  db.addItem({ taskId: t, conversationId: cB.id, kind: "assistant", text: "sitemap của web B" });
+  assert.equal(db.searchHistory(a.id, "sitemap", 10).length, 1);
+  db.deleteMemory(r1.note.id);
+  assert.equal(db.searchMemory(a.id, "ngắn", 10).length, 0);
+  db.setJson("specialists", [{ id: "x" }]);
+  assert.deepEqual(db.getJson("specialists"), [{ id: "x" }]);
+});
