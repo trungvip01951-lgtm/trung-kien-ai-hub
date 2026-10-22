@@ -112,7 +112,7 @@ export function MemoryPage() {
           <tbody>
             {notes.map((n) => (
               <tr key={n.id}>
-                <td className="small">{KIND[n.kind]}{n.projectId == null && <div className="badge">Mọi dự án</div>}</td>
+                <td className="small">{KIND[n.kind]}{n.projectId == null && <div className="badge">Mọi dự án</div>}<div className="muted">{n.source === "agent" ? "Agent ghi" : "Anh viết"}</div></td>
                 <td className="wrap"><b>{n.title}</b><div className="small" style={{ whiteSpace: "pre-wrap" }}>{n.content}</div></td>
                 <td className="small">{fmtDate(n.updatedAt)}</td>
                 <td><div className="row">

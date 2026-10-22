@@ -61,22 +61,36 @@ export class Backups {
     return { ok: true, message: "App sẽ khởi động lại để khôi phục." };
   }
 
-  // Gọi lúc khởi động, TRƯỚC khi mở hub.db. Trả về mã bản đã khôi phục (hoặc null).
+  // Gọi lúc khởi động, TRƯỚC khi mở hub.db. Trả về mã bản đã khôi phục (hoặc null). Lỗi giữa chừng thì trả lại
+  // đúng trạng thái trước khi khôi phục rồi báo lỗi; lệnh chờ chỉ xoá sau khi xong (thành công hoặc đã trả lại).
   applyPendingRestore(): string | null {
     const f = path.join(this.dataDir, PENDING);
     if (!existsSync(f)) return null;
     let id = "";
-    try { id = JSON.parse(readFileSync(f, "utf8")).id; } finally { rmSync(f, { force: true }); }
+    try { id = JSON.parse(readFileSync(f, "utf8")).id; } catch { rmSync(f, { force: true }); return null; }
     const src = path.join(this.root(), id);
-    if (!id || !existsSync(path.join(src, "manifest.json"))) return null;
+    if (!id || !existsSync(path.join(src, "manifest.json"))) { rmSync(f, { force: true }); return null; }
     // Cất trạng thái hiện tại để còn quay lại được (chép tệp thô vì DB chưa mở).
     const safety = path.join(this.root(), `${stamp(this.now())}-before-restore`);
     mkdirSync(safety, { recursive: true });
     for (const n of [...FILES, "hub.db-wal", "hub.db-shm"]) if (existsSync(path.join(this.dataDir, n))) cpSync(path.join(this.dataDir, n), path.join(safety, n));
     for (const d of DIRS) if (existsSync(path.join(this.dataDir, d))) cpSync(path.join(this.dataDir, d), path.join(safety, d), { recursive: true });
     writeFileSync(path.join(safety, "manifest.json"), JSON.stringify({ createdAt: this.now().toISOString(), reason: "before-restore", appVersion: this.appVersion, bytes: sizeOf(safety) }, null, 2));
-    for (const n of ["hub.db-wal", "hub.db-shm"]) rmSync(path.join(this.dataDir, n), { force: true });
-    for (const n of FILES) {
+    try {
+      this.copyInto(src);
+    } catch (err) {
+      this.copyInto(safety);
+      rmSync(f, { force: true });
+      throw new Error(`Khôi phục lỗi giữa chừng, đã trả lại dữ liệu như trước khi khôi phục: ${String(err)}`);
+    }
+    rmSync(f, { force: true });
+    return id;
+  }
+
+  // Chép một bản (sao lưu hoặc bản cất trước khi khôi phục) vào thư mục dữ liệu. Tệp nhật ký ghi của SQLite (-wal, -shm)
+  // đi cùng hub.db: có trong bản thì chép, không có thì xoá (bản tạo bằng VACUUM INTO đã gộp đủ).
+  private copyInto(src: string) {
+    for (const n of [...FILES, "hub.db-wal", "hub.db-shm"]) {
       if (existsSync(path.join(src, n))) cpSync(path.join(src, n), path.join(this.dataDir, n));
       else if (n !== "hub.db") rmSync(path.join(this.dataDir, n), { force: true });
     }
@@ -84,7 +98,6 @@ export class Backups {
       rmSync(path.join(this.dataDir, d), { recursive: true, force: true });
       if (existsSync(path.join(src, d))) cpSync(path.join(src, d), path.join(this.dataDir, d), { recursive: true });
     }
-    return id;
   }
 
   exportTo(id: string, destDir: string): string {

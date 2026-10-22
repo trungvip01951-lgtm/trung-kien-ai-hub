@@ -7,6 +7,7 @@ import { nextRun } from "./schedule";
 
 export interface Starter {
   start(input: StartTaskInput): Promise<{ ok: boolean; busy?: boolean; taskId?: number; message?: string; done?: Promise<TaskRow> }>;
+  runningTasks(): { taskId: number }[];
 }
 
 export class Jobs {
@@ -14,7 +15,9 @@ export class Jobs {
   private again = false;
   private timer: NodeJS.Timeout | null = null;
 
-  constructor(private db: HubDb, private runner: Starter, private emit: (e: HubEvent) => void, private now = () => new Date()) {}
+  // guard: lý do tạm chưa chạy được (ví dụ cửa sổ đăng nhập trình duyệt đang mở) thì để việc chờ.
+  constructor(private db: HubDb, private runner: Starter, private emit: (e: HubEvent) => void, private now = () => new Date(),
+    private guard: () => string | null = () => null) {}
 
   enqueue(input: StartTaskInput, source = "Chat"): QueueItem {
     const it = this.db.enqueue(input, source);
@@ -42,6 +45,8 @@ export class Jobs {
 
   private async pumpOnce() {
     for (const it of this.db.waitingQueue()) {
+      // Đọc lại trạng thái ngay trước khi chạy (anh có thể vừa bấm Huỷ trong lúc việc trước đang khởi động).
+      if (this.db.queueItem(it.id)?.status !== "waiting" || this.guard()) continue;
       const r = await this.runner.start(it.input);
       if (r.ok) {
         this.db.setQueueStatus(it.id, "started", null, r.taskId ?? null);
@@ -62,6 +67,13 @@ export class Jobs {
       if (!s.enabled || !s.nextRunAt || new Date(s.nextRunAt) > now) continue;
       this.db.markScheduleRun(s.id, now.toISOString(), nextRun(s, now).toISOString());
       if (!this.db.getProject(s.projectId)) continue;
+      // Lần trước của cùng lịch còn chờ hoặc còn chạy: bỏ lần này, không dồn nhiều lần chạy cùng sửa một chỗ.
+      const pendingSame = this.db.waitingQueue().some((q) => q.source.startsWith(`Lịch #${s.id} `));
+      const runningSame = s.lastTaskId != null && this.runner.runningTasks().some((r) => r.taskId === s.lastTaskId);
+      if (pendingSame || runningSame) {
+        this.emit({ type: "queue-failed", queueId: 0, message: `Lịch "${s.name}": lần trước chưa xong, bỏ qua lần ${now.toLocaleString("vi-VN")}.` });
+        continue;
+      }
       this.enqueue({ conversationId: null, projectId: s.projectId, prompt: s.prompt, model: s.model, effort: s.effort, permission: s.permission },
         `Lịch #${s.id} ${s.name}`);
     }

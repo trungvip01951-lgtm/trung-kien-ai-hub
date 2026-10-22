@@ -121,3 +121,15 @@ describe("Word", () => {
     await assert.rejects(() => wordCreate(old, []), /Định dạng cũ/);
   });
 });
+
+it("excelWrite: tệp có biểu đồ thì từ chối, không đụng tệp", async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "office-chart-"));
+  const f = path.join(dir, "co-bieu-do.xlsx");
+  await excelWrite(f, { sheet: "S", start: "A1", rows: [["Máy bơm mẫu", 1]] }, path.join(dir, "bk"));
+  const zip = await JSZip.loadAsync(readFileSync(f));
+  zip.file("xl/charts/chart1.xml", "<c:chartSpace/>");
+  writeFileSync(f, await zip.generateAsync({ type: "nodebuffer" }));
+  const before = readFileSync(f);
+  await assert.rejects(excelWrite(f, { sheet: "S", start: "A2", rows: [["x"]] }, path.join(dir, "bk")), /biểu đồ/);
+  assert.ok(readFileSync(f).equals(before));
+});

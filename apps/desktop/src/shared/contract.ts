@@ -129,7 +129,8 @@ export type HubEvent =
 
 // Bộ nhớ dài hạn theo dự án (projectId null: dùng chung mọi dự án).
 export type MemoryKind = "rule" | "fact" | "error" | "progress" | "note";
-export interface MemoryNote { id: number; projectId: number | null; kind: MemoryKind; title: string; content: string; createdAt: string; updatedAt: string }
+// source: "user" anh Trung tự viết, "agent" do agent ghi.
+export interface MemoryNote { id: number; projectId: number | null; kind: MemoryKind; title: string; content: string; source: "user" | "agent"; createdAt: string; updatedAt: string }
 
 // AI chuyên môn (subagent): mặc định của app hoặc anh tự thêm.
 export interface SpecialistInfo { id: string; name: string; description: string; prompt: string; model: ModelId; effort: Effort; enabled: boolean; builtin: boolean }

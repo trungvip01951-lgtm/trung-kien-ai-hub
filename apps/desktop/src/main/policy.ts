@@ -16,7 +16,8 @@ const FILE_EDIT = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit"]);
 const PROTECTED = [/^\.claude([\\/]|$)/i, /^\.mcp\.json$/i, /^\.git([\\/]|$)/i, /^CLAUDE\.md$/i, /^\.env/i];
 
 // noAlways: hỏi mà không cho nút "Đồng ý luôn" (thao tác quá rộng hoặc quá nhạy cảm để cho hẳn).
-export type Decision = { decision: "allow" | "deny" | "ask"; reason: string; updatedInput?: Record<string, unknown>; noAlways?: boolean };
+// key: khoá "Đồng ý luôn" riêng (bỏ qua cách tính mặc định).
+export type Decision = { decision: "allow" | "deny" | "ask"; reason: string; updatedInput?: Record<string, unknown>; noAlways?: boolean; key?: string };
 
 // Đường dẫn thật (giải symlink/junction); đích chưa tồn tại thì giải thư mục cha gần nhất.
 function realish(p: string): string {

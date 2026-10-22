@@ -79,7 +79,7 @@ export class HubDb {
       // 0.5.0: bộ nhớ dài hạn (ghi chú theo dự án, tìm bằng FTS5).
       () => {
         this.db.exec(`CREATE TABLE IF NOT EXISTS memory (id INTEGER PRIMARY KEY, project_id INTEGER, kind TEXT NOT NULL, title TEXT NOT NULL,
-          content TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+          content TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'user', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS memory_proj ON memory(project_id, updated_at);
         CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(title, content, content='memory', content_rowid='id');
         CREATE TRIGGER IF NOT EXISTS memory_ai AFTER INSERT ON memory BEGIN
@@ -119,6 +119,10 @@ export class HubDb {
   waitingQueue(): QueueItem[] {
     return (this.db.prepare("SELECT * FROM queue WHERE status='waiting' ORDER BY id").all() as Row[]).map(toQueue);
   }
+  // Sau khi khôi phục bản sao lưu: việc còn "đang chờ" trong bản cũ có thể đã chạy rồi, huỷ để không chạy lặp.
+  cancelWaitingQueue(message: string): number {
+    return Number(this.db.prepare("UPDATE queue SET status='cancelled', message=? WHERE status='waiting'").run(message).changes);
+  }
   setQueueStatus(id: number, status: QueueItem["status"], message: string | null, taskId: number | null = null) {
     this.db.prepare("UPDATE queue SET status=?, message=?, task_id=COALESCE(?, task_id) WHERE id=?").run(status, message, taskId, id);
   }
@@ -132,16 +136,18 @@ export class HubDb {
     this.db.prepare("INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(key, JSON.stringify(v));
   }
 
-  // Bộ nhớ: cùng dự án + cùng tiêu đề thì cập nhật (không tạo trùng).
-  upsertMemory(n: { id?: number; projectId: number | null; kind: MemoryKind; title: string; content: string }): { note: MemoryNote; updated: boolean } {
+  // Bộ nhớ: cùng dự án + cùng tiêu đề + cùng người ghi thì cập nhật (không tạo trùng).
+  // Agent chỉ cập nhật ghi chú do agent ghi; ghi chú anh Trung tự viết không bị agent đè.
+  upsertMemory(n: { id?: number; projectId: number | null; kind: MemoryKind; title: string; content: string; source?: "user" | "agent" }): { note: MemoryNote; updated: boolean } {
     const t = now();
+    const source = n.source ?? "user";
     const found = n.id ? (this.db.prepare("SELECT id FROM memory WHERE id=?").get(n.id) as Row | undefined)
-      : (this.db.prepare("SELECT id FROM memory WHERE project_id IS ? AND lower(title)=lower(?)").get(n.projectId, n.title) as Row | undefined);
+      : (this.db.prepare("SELECT id FROM memory WHERE project_id IS ? AND lower(title)=lower(?) AND source=?").get(n.projectId, n.title, source) as Row | undefined);
     if (found) {
       this.db.prepare("UPDATE memory SET project_id=?, kind=?, title=?, content=?, updated_at=? WHERE id=?").run(n.projectId, n.kind, n.title, n.content, t, Number(found.id));
       return { note: this.getMemory(Number(found.id))!, updated: true };
     }
-    const r = this.db.prepare("INSERT INTO memory(project_id, kind, title, content, created_at, updated_at) VALUES(?,?,?,?,?,?)").run(n.projectId, n.kind, n.title, n.content, t, t);
+    const r = this.db.prepare("INSERT INTO memory(project_id, kind, title, content, source, created_at, updated_at) VALUES(?,?,?,?,?,?,?)").run(n.projectId, n.kind, n.title, n.content, source, t, t);
     return { note: this.getMemory(Number(r.lastInsertRowid))!, updated: false };
   }
   getMemory(id: number): MemoryNote | null {
@@ -375,7 +381,7 @@ function ftsTerms(q: string): string {
 }
 function toMemory(r: Row): MemoryNote {
   return { id: Number(r.id), projectId: r.project_id == null ? null : Number(r.project_id), kind: r.kind as MemoryKind, title: String(r.title),
-    content: String(r.content), createdAt: String(r.created_at), updatedAt: String(r.updated_at) };
+    content: String(r.content), source: r.source === "agent" ? "agent" : "user", createdAt: String(r.created_at), updatedAt: String(r.updated_at) };
 }
 function toQueue(r: Row): QueueItem {
   return { id: Number(r.id), input: JSON.parse(String(r.input)), source: String(r.source), status: r.status as QueueItem["status"],

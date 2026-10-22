@@ -11,7 +11,7 @@ import { checkSettings, settingsFiles } from "./settings-guard";
 import { buildSystemPrompt, ROUTED_AGENTS } from "./routing";
 import { CHROME_GUIDE, CHROME_SERVER, chromeServerConfig, decideBrowser, hostOf, isBrowserTool, newBrowserState, updateBrowserState, type ChromePaths } from "./chrome";
 import type { AgentDefinition, McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
-import { MEMORY_GUIDE, MEMORY_SERVER, memoryServer, type MemoryStore } from "./memory-tools";
+import { decideMemory, MEMORY_GUIDE, MEMORY_SERVER, memoryServer, type MemoryStore } from "./memory-tools";
 import type { Decision } from "./policy";
 import { decideOffice, decideWindows, OFFICE_SERVER, WIN_SERVER } from "./local-tools";
 
@@ -217,14 +217,15 @@ export class AgentRunner {
     const browser = newBrowserState();
     const decideTool = (toolName: string, toolInput: unknown) => (isBrowserTool(toolName)
       ? (chrome ? decideBrowser(chrome, toolName, toolInput, browser, level === "read", level === "full") : { decision: "deny" as const, reason: noBrowser })
-      : toolName.startsWith(`mcp__${MEMORY_SERVER}__`) ? { decision: "allow" as const, reason: "Bộ nhớ của app" }
-      : toolName.startsWith(`mcp__${WIN_SERVER}__`) ? decideWindows(toolName.slice(WIN_SERVER.length + 7), level)
+      : toolName.startsWith(`mcp__${MEMORY_SERVER}__`) ? decideMemory(toolName.slice(MEMORY_SERVER.length + 7), toolInput, level)
+      : toolName.startsWith(`mcp__${WIN_SERVER}__`) ? decideWindows(toolName.slice(WIN_SERVER.length + 7), level, toolInput)
       : toolName.startsWith(`mcp__${OFFICE_SERVER}__`) ? decideOffice(toolName.slice(OFFICE_SERVER.length + 7), toolInput, level, project.path)
       : this.deps.connections?.owns(toolName) ? this.deps.connections.decide(toolName, level)
       : decide(level, toolName, toolInput, project.path, extraRead));
     // Khoá cho nút "Đồng ý luôn" (null = không cho). Trình duyệt: mở trang theo tên miền đích, thao tác theo tên miền trang đang mở.
     const askKey = (toolName: string, toolInput: unknown, d: Decision): string | null => {
       if (d.noAlways) return null;
+      if (d.key) return d.key;
       if (isBrowserTool(toolName)) {
         const url = (toolInput as { url?: unknown })?.url;
         const host = typeof url === "string" ? hostOf(url) : browser.url ? hostOf(browser.url) : null;

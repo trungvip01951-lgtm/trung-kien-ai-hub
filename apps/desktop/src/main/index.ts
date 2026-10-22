@@ -14,7 +14,8 @@ import { Connections } from "./connections";
 import { Backups } from "./backup";
 import { Jobs } from "./jobs";
 import { officeServer, windowsServer } from "./local-tools";
-import { validateRule } from "./schedule";
+import { nextRun, validateRule } from "./schedule";
+import { setSelfPids } from "./windows";
 import { makePdf } from "./pdf";
 import { mergeSpecialists, toAgentDefinitions } from "./specialists";
 import type { SpecialistInfo } from "../shared/contract";
@@ -235,7 +236,8 @@ function registerIpc(db: HubDb, keys: KeyRing, runner: AgentRunner, skills: Skil
   h("restoreBackup", (id: string) => {
     if (runner.runningTaskId() !== null) return { ok: false, message: "Đang chạy việc. Chờ xong rồi khôi phục." };
     const r = backups.requestRestore(String(id));
-    if (r.ok) setTimeout(() => { app.relaunch(); app.exit(0); }, 500);
+    // app.exit bỏ qua sự kiện thoát thường: tự dừng lịch và đóng cơ sở dữ liệu trước.
+    if (r.ok) setTimeout(() => { jobs.stop(); try { db.close(); } catch { /* đã đóng */ } app.relaunch(); app.exit(0); }, 500);
     return r;
   });
   h("exportBackup", async (id: string) => {
@@ -267,6 +269,13 @@ function registerIpc(db: HubDb, keys: KeyRing, runner: AgentRunner, skills: Skil
   });
 }
 
+// Chỉ một bản app chạy một lúc (hai bản cùng mở một hub.db sẽ chạy trùng hàng đợi, lịch).
+if (!smoke && !app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
+}
+
 app.whenReady().then(async () => {
   if (smoke) {
     const pass = await runSmokeTest(outArg?.slice("--smoke-out=".length));
@@ -288,10 +297,19 @@ async function startApp() {
   let dbRef: HubDb | null = null;
   const backups = new Backups(dataDir, (f) => dbRef!.snapshot(f), app.getVersion());
   // Khôi phục đã yêu cầu ở lần chạy trước: làm trước khi mở cơ sở dữ liệu.
-  const restored = backups.applyPendingRestore();
+  let restored: string | null = null;
+  let restoreError = "";
+  try { restored = backups.applyPendingRestore(); } catch (err) { restoreError = String(err); }
   const db = new HubDb(path.join(dataDir, "hub.db"));
   dbRef = db;
   db.markInterrupted();
+  if (restored) {
+    // Việc "đang chờ" và giờ lịch trong bản cũ có thể đã chạy rồi: huỷ việc chờ, tính lại giờ lịch từ bây giờ (không chạy bù).
+    db.cancelWaitingQueue("Huỷ sau khi khôi phục bản sao lưu (tránh chạy lặp).");
+    for (const s of db.listSchedules()) db.markScheduleRun(s.id, s.lastRunAt ?? new Date().toISOString(), s.enabled ? nextRun(s, new Date()).toISOString() : null);
+  }
+  // Đóng cơ sở dữ liệu êm khi thoát để gộp nhật ký ghi (WAL) vào hub.db.
+  app.on("will-quit", () => { try { db.close(); } catch { /* đã đóng */ } });
   try { backups.autoIfDue(); } catch (err) { console.error("Tự sao lưu lỗi:", err); }
   const keys = new KeyRing(path.join(dataDir, "api-keys.bin"), path.join(dataDir, "api-keys-state.json"), path.join(dataDir, "api-key.bin"));
   const skills = new SkillStore(path.join(dataDir, "skills"));
@@ -310,7 +328,9 @@ async function startApp() {
       office: (projectDir) => officeServer({ backupDir: path.join(dataDir, "office-backup"), projectDir, makePdf }),
     },
   });
-  const jobs = new Jobs(db, runner, emit);
+  const jobs = new Jobs(db, runner, emit, () => new Date(),
+    () => (browserWindowOpen ? "Trình duyệt của app đang mở để đăng nhập" : null));
+  setSelfPids(() => (win && !win.isDestroyed() ? [win.webContents.getOSProcessId()] : []));
   registerIpc(db, keys, runner, skills, conns, ext, jobs, backups);
 
   win = new BrowserWindow({
@@ -324,6 +344,7 @@ async function startApp() {
   await win.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
   startUpdater(emit);
   jobs.start();
+  if (restoreError) dialog.showErrorBox("Khôi phục không thành công", restoreError);
   if (restored) dialog.showMessageBox(win, { message: `Đã khôi phục bản sao lưu ${restored}. Trạng thái trước khi khôi phục được cất trong mục Sao lưu.` }).catch(() => {});
 }
 

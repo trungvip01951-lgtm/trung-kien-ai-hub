@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { HubDb } from "./db";
+import { decideMemory, looksSensitive } from "./memory-tools";
 
 test("lưu, mở lại không mất dữ liệu, tìm kiếm tiếng Việt", () => {
   const file = path.join(mkdtempSync(path.join(os.tmpdir(), "hubdb-")), "hub.db");
@@ -96,4 +97,22 @@ test("bộ nhớ: thêm, trùng tiêu đề thì cập nhật, tìm theo dự á
   assert.equal(db.searchMemory(a.id, "ngắn", 10).length, 0);
   db.setJson("specialists", [{ id: "x" }]);
   assert.deepEqual(db.getJson("specialists"), [{ id: "x" }]);
+});
+
+test("bộ nhớ: agent không đè ghi chú anh viết; lọc dữ liệu nhạy cảm; quyền ghi", async () => {
+  const db = new HubDb(":memory:");
+  const p = db.addProject("Web A", "/tmp/web-a2");
+  const mine = db.upsertMemory({ projectId: p.id, kind: "rule", title: "Giọng văn", content: "Ngắn gọn" });
+  const ag = db.upsertMemory({ projectId: p.id, kind: "note", title: "giọng văn", content: "khác", source: "agent" });
+  assert.notEqual(ag.note.id, mine.note.id);
+  assert.equal(db.getMemory(mine.note.id)!.content, "Ngắn gọn");
+  assert.equal(ag.note.source, "agent");
+  for (const s of ["gọi 090 123 4567", "0901.234.567", "+84 90 123 4567", "ya29.a0AfH6SMB", "ghp_abcDEF123", "key ABCdef1234567890ABCdef1234567890xyz"]) {
+    assert.ok(looksSensitive(s), s);
+  }
+  assert.ok(!looksSensitive("Model máy bơm 50SV-15 lưu lượng 12 m3/h, cột áp 40 m"));
+  assert.equal(decideMemory("memory_add", { global: true }, "write").decision, "ask");
+  assert.equal(decideMemory("memory_add", {}, "read").decision, "deny");
+  assert.equal(decideMemory("memory_add", {}, "write").decision, "allow");
+  assert.equal(decideMemory("memory_search", {}, "read").decision, "allow");
 });

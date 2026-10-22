@@ -30,7 +30,7 @@ test("hàng đợi: bận thì chờ, rảnh thì chạy theo thứ tự, lỗi 
   let busy = true;
   const started: string[] = [];
   const events: string[] = [];
-  const runner = { start: async (i: StartTaskInput) => {
+  const runner = { runningTasks: () => [] as { taskId: number }[], start: async (i: StartTaskInput) => {
     if (i.prompt === "lỗi") return { ok: false, message: "Hết hạn mức ngày" };
     if (busy) return { ok: false, busy: true, message: "Đủ 3 việc" };
     started.push(i.prompt);
@@ -59,7 +59,21 @@ test("hàng đợi: bận thì chờ, rảnh thì chạy theo thứ tự, lỗi 
   jobs.tick();
   await jobs.pump();
   assert.deepEqual(started.filter((x) => x === "báo cáo"), ["báo cáo"]);
-  assert.equal(db.getSchedule(s.id)!.nextRunAt, new Date(2026, 9, 27, 8, 0).toISOString());
+  // Huỷ việc đang chờ thì không chạy; lịch có lần trước còn chờ thì không đưa thêm lần mới.
+  busy = true;
+  const w = jobs.enqueue(input("sẽ huỷ"));
+  jobs.cancel(w.id);
+  busy = false;
+  await jobs.pump();
+  assert.ok(!(started as string[]).includes("sẽ huỷ"));
+  busy = true;
+  now = new Date(2026, 9, 27, 9, 0);
+  jobs.tick();
+  now = new Date(2026, 9, 28, 9, 0);
+  jobs.tick();
+  assert.equal(db.waitingQueue().filter((q) => q.source.startsWith(`Lịch #${s.id} `)).length, 1);
+  assert.equal(db.cancelWaitingQueue("khôi phục"), 1);
+  assert.equal(db.getSchedule(s.id)!.nextRunAt, new Date(2026, 9, 29, 8, 0).toISOString());
 });
 
 test("sao lưu: tạo, liệt kê, khôi phục khi khởi động (cất bản hiện tại trước), xuất/nhập", () => {
@@ -93,7 +107,12 @@ test("sao lưu: tạo, liệt kê, khôi phục khi khởi động (cất bản 
 });
 
 test("quyền công cụ Windows và tài liệu", () => {
-  assert.equal(decideWindows("read_window", "read").decision, "allow");
+  assert.equal(decideWindows("list_windows", "read").decision, "allow");
+  assert.equal(decideWindows("read_window", "read", { window: "Zalo" }).decision, "ask");          // nội dung app khác: hỏi
+  assert.equal(decideWindows("read_window", "full", { window: "Zalo" }).decision, "allow");
+  // "Đồng ý luôn" mở chương trình chỉ áp đúng chương trình + tham số.
+  assert.notEqual(decideWindows("open_app", "write", { target: "notepad.exe" }).key, decideWindows("open_app", "write", { target: "powershell.exe", args: ["-c", "x"] }).key);
+  assert.equal(decideWindows("mouse_click", "write", { x: 1, y: 1 }).noAlways, true);
   assert.equal(decideWindows("click_element", "read").decision, "deny");
   assert.equal(decideWindows("click_element", "write").decision, "ask");
   assert.equal(decideWindows("open_app", "full").decision, "allow");
@@ -103,4 +122,6 @@ test("quyền công cụ Windows và tài liệu", () => {
   assert.equal(decideOffice("excel_write", { file: "bao-gia.xlsx" }, "write", proj).decision, "allow");
   assert.equal(decideOffice("word_create", { file: path.join(os.tmpdir(), "ngoai.docx") }, "write", proj).decision, "ask");
   assert.equal(decideOffice("word_read", { file: "../ngoai.docx" }, "write", proj).decision, "ask");
+  assert.equal(decideOffice("pdf_from_html", { file: "CLAUDE.md" }, "write", proj).decision, "ask");            // tệp được bảo vệ
+  assert.equal(decideOffice("excel_write", { file: ".claude/x.xlsx" }, "write", proj).decision, "ask");
 });

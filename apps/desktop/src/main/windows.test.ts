@@ -15,9 +15,10 @@ test("điều khiển Windows bằng UI Automation (Notepad)", { skip: !onWindow
       if (!win) await new Promise((r) => setTimeout(r, 1000));
     }
     assert.ok(win, "không thấy cửa sổ Notepad");
-    const tree = await runWindows("read_window", { handle: win.handle }) as { elements: string[] };
-    console.log(tree.elements.slice(0, 15).join("\n"));
-    const edit = tree.elements.find((l) => / (Edit|Document) /.test(l));
+    const tree = await runWindows("read_window", { handle: win.handle }) as { elements: string[]; total: number };
+    console.log(`tổng ${tree.total} phần tử\n${tree.elements.slice(0, 15).join("\n")}`);
+    // Notepad cổ điển: ô soạn thảo là Edit mã 15 (có máy báo là Pane); Notepad mới: Document.
+    const edit = tree.elements.find((l) => / (Edit|Document) /.test(l)) ?? tree.elements.find((l) => / id=15( |$)/.test(l));
     assert.ok(edit, "không thấy ô soạn thảo");
     const index = Number(/^\[(\d+)\]/.exec(edit)![1]);
     const set = await runWindows("set_text", { handle: win.handle, index, text: "Khách Mẫu A 0000000001" }) as { how: string };

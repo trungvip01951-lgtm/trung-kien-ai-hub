@@ -3,7 +3,8 @@ import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from "@
 import { z } from "zod";
 import type { PermissionLevel } from "../shared/contract";
 import { excelRead, excelWrite, wordCreate, wordRead, wordReplace } from "./office";
-import { isInside, type Decision } from "./policy";
+import { decide, isInside, type Decision } from "./policy";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { runWindows, WIN_READ_ACTIONS, type WinAction } from "./windows";
 
 // Công cụ chạy ngay trong app (máy chủ MCP trong tiến trình, Agent SDK `createSdkMcpServer`):
@@ -70,7 +71,7 @@ export function officeServer(d: OfficeDeps): McpSdkServerConfigWithInstance {
       tool("excel_read", "Đọc bảng tính .xlsx (tối đa maxRows dòng, mặc định 500).",
         { file: z.string(), sheet: z.string().optional(), range: z.string().optional(), maxRows: z.number().optional() },
         wrap((a) => excelRead(a.file, a)), { annotations: { readOnlyHint: true } }),
-      tool("excel_write", "Ghi dữ liệu vào .xlsx từ ô start (ví dụ A1); chuỗi bắt đầu bằng = là công thức. Bản gốc được sao lưu trước.",
+      tool("excel_write", "Ghi dữ liệu vào .xlsx từ ô start (ví dụ A1); chuỗi bắt đầu bằng = là công thức. Bản gốc được sao lưu trước. Tệp có biểu đồ/pivot/hình sẽ bị từ chối (ghi sẽ làm mất); khi đó ghi ra tệp mới hoặc sửa bằng Excel qua công cụ windows.",
         { file: z.string(), sheet: z.string(), start: z.string(), rows: z.array(z.array(cell)) },
         wrap((a) => excelWrite(a.file, a, d.backupDir))),
       tool("word_read", "Đọc chữ trong tệp .docx.", { file: z.string() }, wrap((a) => wordRead(a.file)), { annotations: { readOnlyHint: true } }),
@@ -80,7 +81,18 @@ export function officeServer(d: OfficeDeps): McpSdkServerConfigWithInstance {
       tool("word_replace", "Thay chữ trong .docx (giữ định dạng). Bản gốc được sao lưu trước.",
         { file: z.string(), find: z.string(), replace: z.string() }, wrap((a) => wordReplace(a.file, a.find, a.replace, d.backupDir))),
       tool("pdf_from_html", "Xuất PDF khổ A4 từ HTML (có thể kèm CSS trong thẻ style).",
-        { file: z.string(), html: z.string() }, wrap(async (a) => { await d.makePdf(a.html, a.file); return { ok: true, file: a.file }; })),
+        { file: z.string(), html: z.string() }, wrap(async (a) => {
+          if (path.extname(a.file).toLowerCase() !== ".pdf") throw new Error("Tên tệp phải có đuôi .pdf.");
+          // Tệp đã có: chép bản cũ vào thư mục sao lưu trước khi ghi đè.
+          let backup: string | null = null;
+          if (existsSync(a.file)) {
+            mkdirSync(d.backupDir, { recursive: true });
+            backup = path.join(d.backupDir, `${path.basename(a.file)}.${Date.now()}.bak.pdf`);
+            copyFileSync(a.file, backup);
+          }
+          await d.makePdf(a.html, a.file);
+          return { ok: true, file: a.file, backup };
+        })),
     ],
   });
 }
@@ -94,13 +106,30 @@ export function decideOffice(tool: string, input: unknown, level: PermissionLeve
   const inside = !!file && isInside(projectDir, path.resolve(projectDir, file));
   if (OFFICE_READ.has(tool)) return inside ? { decision: "allow", reason: "Đọc tệp trong dự án" } : { decision: "ask", reason: `Đọc tệp ngoài dự án: ${file}` };
   if (level === "read") return { decision: "deny", reason: "Chế độ Chỉ đọc: không ghi tệp." };
+  // Cùng luật với công cụ sửa tệp: tệp cấu hình agent/git của dự án phải hỏi (đi qua decide với Write).
+  if (inside) {
+    const d = decide(level, "Write", { file_path: path.resolve(projectDir, file) }, projectDir);
+    if (d.decision !== "allow") return d;
+  }
   return inside ? { decision: "allow", reason: "Ghi tệp trong dự án (bản gốc được sao lưu)" } : { decision: "ask", reason: `Ghi tệp ngoài dự án: ${file}` };
 }
 
-// Đọc màn hình tự cho (trừ việc Chỉ đọc vẫn cho); bấm/gõ/mở chương trình phải hỏi, Chỉ đọc thì chặn, Đủ quyền thì cho.
-export function decideWindows(tool: string, level: PermissionLevel): Decision {
-  if (WIN_READ_ACTIONS.has(tool as WinAction)) return { decision: "allow", reason: "Xem cửa sổ/màn hình" };
+// Liệt kê cửa sổ tự cho. Đọc nội dung cửa sổ/chụp màn hình (có thể là tin nhắn, ngân hàng...) phải hỏi, trừ Đủ quyền.
+// Bấm/gõ/mở chương trình: Chỉ đọc thì chặn, mức thường phải hỏi, Đủ quyền thì cho. "Đồng ý luôn" theo đúng cửa sổ/chương trình.
+export function decideWindows(tool: string, level: PermissionLevel, input: unknown = {}): Decision {
+  const i = (input ?? {}) as Record<string, unknown>;
+  const win = String(i.window ?? i.handle ?? "");
+  if (tool === "list_windows") return { decision: "allow", reason: "Liệt kê cửa sổ" };
   if (level === "full") return { decision: "allow", reason: "Đủ quyền" };
+  if (WIN_READ_ACTIONS.has(tool as WinAction)) {
+    return tool === "screenshot" ? { decision: "ask", reason: "Chụp màn hình (thấy mọi thứ đang mở)", key: "screenshot" }
+      : { decision: "ask", reason: `Đọc nội dung cửa sổ ${win || "?"}`, key: win ? `${tool}@win:${win.toLowerCase()}` : undefined, noAlways: !win };
+  }
   if (level === "read") return { decision: "deny", reason: "Chế độ Chỉ đọc: không điều khiển ứng dụng Windows." };
-  return { decision: "ask", reason: "Điều khiển ứng dụng Windows (bấm, gõ, mở chương trình)", noAlways: tool === "mouse_click" || tool === "send_keys" };
+  if (tool === "open_app") {
+    const args = Array.isArray(i.args) ? i.args.map(String).join(" ") : "";
+    return { decision: "ask", reason: "Mở chương trình", key: `open_app=${String(i.target ?? "").toLowerCase()}|${args}` };
+  }
+  if (tool === "mouse_click" || tool === "send_keys" || !win) return { decision: "ask", reason: "Điều khiển ứng dụng Windows", noAlways: true };
+  return { decision: "ask", reason: `Điều khiển cửa sổ ${win} (bấm, gõ)`, key: `${tool}@win:${win.toLowerCase()}` };
 }

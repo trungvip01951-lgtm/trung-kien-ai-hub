@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import ExcelJS from "exceljs";
 import JSZip from "jszip";
@@ -106,6 +106,10 @@ export async function excelWrite(file: string, opts: { sheet: string; start: str
   if (created) {
     mkdirSync(path.dirname(file), { recursive: true });
   } else {
+    // ExcelJS đọc rồi ghi lại sẽ làm mất biểu đồ, pivot, hình: thấy có thì từ chối, không đụng tệp.
+    const zip = await JSZip.loadAsync(readFileSync(file));
+    const rich = Object.keys(zip.files).filter((n) => /^xl\/(charts|pivotTables|pivotCache|drawings|media)\//i.test(n));
+    if (rich.length) throw new Error("Tệp có biểu đồ/pivot/hình: ghi bằng công cụ này sẽ làm mất các phần đó. Ghi ra tệp .xlsx mới, hoặc sửa bằng Excel qua công cụ windows.");
     await wb.xlsx.readFile(file);
     backup = backupFile(file, backupDir);
   }
@@ -115,7 +119,10 @@ export async function excelWrite(file: string, opts: { sheet: string; start: str
     if (typeof v === "string" && v.startsWith("=") && v.length > 1) cell.value = { formula: v.slice(1) } as ExcelJS.CellFormulaValue;
     else cell.value = v;
   }));
-  await wb.xlsx.writeFile(file);
+  // Ghi ra tệp tạm rồi đổi tên: lỗi giữa chừng không để lại tệp hỏng.
+  const tmp = `${file}.tkhub-tmp`;
+  await wb.xlsx.writeFile(tmp);
+  renameSync(tmp, file);
   return { backup, cells, created };
 }
 

@@ -20,12 +20,23 @@ if (-not ('TkUser32' -as [type])) {
 [DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr h, int c);
 [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
 [DllImport("user32.dll")] public static extern void mouse_event(int f, int x, int y, int d, int e);
-'@
+[DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();
+[DllImport("user32.dll")] public static extern System.IntPtr WindowFromPoint(System.Drawing.Point p);
+[DllImport("user32.dll")] public static extern System.IntPtr GetAncestor(System.IntPtr h, int flags);
+[DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(System.IntPtr h, out int pid);
+'@ -ReferencedAssemblies System.Drawing
+}
+# Cửa sổ của chính Trung Kiên AI Hub: agent không được đọc/bấm vào (tránh tự bấm "Cho phép" trong hộp hỏi quyền).
+function Is-Self([int]$procId) { return @($P.selfPids) -contains $procId }
+function Assert-NotSelf([System.IntPtr]$h) {
+  $procId = 0; [void][TkUser32]::GetWindowThreadProcessId($h, [ref]$procId)
+  if (Is-Self $procId) { throw 'Không được điều khiển cửa sổ của chính Trung Kiên AI Hub.' }
 }
 # Lưu ý: biến PowerShell không phân biệt hoa thường ($p chính là $P), nên tham số hàm đặt tên $q.
 function Find-Window($q) {
   $all = $A::RootElement.FindAll($T::Children, [System.Windows.Automation.Condition]::TrueCondition)
   foreach ($w in $all) {
+    if (Is-Self $w.Current.ProcessId) { continue }
     if ($q.handle -and $w.Current.NativeWindowHandle -eq [int]$q.handle) { return $w }
     if ($q.window -and $w.Current.Name -like ('*' + $q.window + '*')) { return $w }
   }
@@ -50,13 +61,13 @@ function Focus($w) {
   $h = [System.IntPtr]$w.Current.NativeWindowHandle
   [void][TkUser32]::ShowWindow($h, 9); [void][TkUser32]::SetForegroundWindow($h); Start-Sleep -Milliseconds 200
 }
-function Out($o) { $o | ConvertTo-Json -Depth 6 -Compress }
+function Out($o) { ConvertTo-Json -InputObject $o -Depth 6 -Compress }
 `;
 
 const SCRIPTS = {
   list_windows: String.raw`
 $all = $A::RootElement.FindAll($T::Children, [System.Windows.Automation.Condition]::TrueCondition)
-$rows = foreach ($w in $all) { $c = $w.Current; if ($c.Name) {
+$rows = foreach ($w in $all) { $c = $w.Current; if ($c.Name -and -not (Is-Self $c.ProcessId)) {
   $pn = ''; try { $pn = (Get-Process -Id $c.ProcessId).ProcessName } catch {}
   [pscustomobject]@{ title = $c.Name; handle = $c.NativeWindowHandle; process = $pn; pid = $c.ProcessId } } }
 Out @($rows)`,
@@ -113,15 +124,18 @@ if ($null -eq $v) { $v = $e.Current.Name }
 Out @{ element = $e.Current.Name; text = $v }`,
   send_keys: String.raw`
 if ($P.window -or $P.handle) { $w = Find-Window $P; Focus $w }
+Assert-NotSelf ([TkUser32]::GetForegroundWindow())
 [System.Windows.Forms.SendKeys]::SendWait([string]$P.keys); Out @{ ok = $true }`,
   mouse_click: String.raw`
+Assert-NotSelf ([TkUser32]::GetAncestor([TkUser32]::WindowFromPoint((New-Object System.Drawing.Point ([int]$P.x), ([int]$P.y))), 2))
 [void][TkUser32]::SetCursorPos([int]$P.x, [int]$P.y)
 $down = 2; $up = 4; if ($P.button -eq 'right') { $down = 8; $up = 16 }
 [TkUser32]::mouse_event($down, 0, 0, 0, 0); [TkUser32]::mouse_event($up, 0, 0, 0, 0)
 if ($P.double) { [TkUser32]::mouse_event($down, 0, 0, 0, 0); [TkUser32]::mouse_event($up, 0, 0, 0, 0) }
 Out @{ ok = $true }`,
   open_app: String.raw`
-$args2 = @(); if ($P.args) { $args2 = @($P.args) }
+# PowerShell 5.1 nối tham số không có nháy: tự bọc nháy tham số có dấu cách để chạy đúng như hộp hỏi hiển thị.
+$args2 = @(); if ($P.args) { $args2 = @($P.args | ForEach-Object { if ("$_" -match '\s') { '"' + ("$_" -replace '"', '\"') + '"' } else { "$_" } }) }
 if ($args2.Count) { $proc = Start-Process -FilePath ([string]$P.target) -ArgumentList $args2 -PassThru } else { $proc = Start-Process -FilePath ([string]$P.target) -PassThru }
 Start-Sleep -Milliseconds 1500
 Out @{ ok = $true; pid = $(if ($proc) { $proc.Id } else { $null }) }`,
@@ -141,25 +155,32 @@ Out @{ width = $out.Width; height = $out.Height; scale = $out.Width / $b.Width; 
 export type WinAction = keyof typeof SCRIPTS;
 export const WIN_READ_ACTIONS = new Set<WinAction>(["list_windows", "read_window", "read_text", "screenshot"]);
 
+// Tiến trình con của app (cửa sổ giao diện) cũng tính là "của app"; nơi gọi đăng ký nếu có.
+let selfPids: (() => number[]) | null = null;
+export function setSelfPids(fn: () => number[]) { selfPids = fn; }
+
 export async function runWindows(action: WinAction, params: Record<string, unknown> = {}): Promise<unknown> {
   if (process.platform !== "win32") throw new Error("Điều khiển Windows chỉ chạy trên Windows.");
   const defaults = { maxNodes: 400, maxWidth: 1600 };
-  const env = { ...process.env, TK_ARGS: JSON.stringify({ ...defaults, ...params }) };
+  const tkArgs = JSON.stringify({ ...defaults, ...params, selfPids: [process.pid, ...(selfPids?.() ?? [])] });
+  if (tkArgs.length > 30_000) throw new Error("Nội dung quá dài cho một lần (tối đa khoảng 30.000 ký tự); chia nhỏ ra.");
+  const env = { ...process.env, TK_ARGS: tkArgs };
   const script = `${PRELUDE}\n${SCRIPTS[action]}`;
   return new Promise((resolve, reject) => {
     // -EncodedCommand (UTF-16LE base64): chạy nguyên khối lệnh, không phụ thuộc cách PowerShell đọc từng dòng.
     const encoded = Buffer.from(script, "utf16le").toString("base64");
     const p = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
       { env, windowsHide: true });
-    let out = "", err = "";
+    const out: Buffer[] = [], err: Buffer[] = [];
     const timer = setTimeout(() => { p.kill(); reject(new Error(`Quá ${TIMEOUT_MS / 1000} giây chưa xong (${action}).`)); }, TIMEOUT_MS);
-    p.stdout.on("data", (d) => (out += d));
-    p.stderr.on("data", (d) => (err += d));
+    // Gom byte rồi mới giải mã UTF-8, để chữ có dấu không vỡ ở ranh giới các khúc dữ liệu.
+    p.stdout.on("data", (d: Buffer) => out.push(d));
+    p.stderr.on("data", (d: Buffer) => err.push(d));
     p.on("error", (e) => { clearTimeout(timer); reject(e); });
     p.on("close", (code) => {
       clearTimeout(timer);
-      if (code !== 0) { reject(new Error(cleanPsError(err) || `PowerShell thoát mã ${code}`)); return; }
-      const line = out.trim().split(/\r?\n/).pop() ?? "";
+      if (code !== 0) { reject(new Error(cleanPsError(Buffer.concat(err).toString("utf8")) || `PowerShell thoát mã ${code}`)); return; }
+      const line = Buffer.concat(out).toString("utf8").trim().split(/\r?\n/).pop() ?? "";
       try { resolve(JSON.parse(line)); } catch { reject(new Error(`Kết quả không đọc được: ${line.slice(0, 200)}`)); }
     });
     p.stdin.end();
