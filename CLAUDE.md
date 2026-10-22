@@ -51,6 +51,8 @@ Ngày viết dd/mm/yyyy, giờ Việt Nam (UTC+7).
 
 - Electron + TypeScript, Node 22, mã ở `apps/desktop/`. Phiên bản thư viện ghim cứng (không dùng `^`); đổi phiên bản phải kiểm tài liệu chính thức và ghi nhật ký.
 - Agent SDK chạy kèm tệp `claude.exe`; bản đóng gói phải giữ `asarUnpack` cho `node_modules/@anthropic-ai/**`, nếu không ứng dụng không chạy được agent.
-- Trước khi đẩy mã: `npm run build` và `npm run smoke` trong `apps/desktop` (trên Linux cần `xvfb-run -a`). CI "Build Windows" phải xanh.
+- Trước khi đẩy mã: `npm test` và `npm run smoke` trong `apps/desktop` (trên Linux cần `xvfb-run -a`). CI "Build Windows" phải xanh.
+- Phát hành: tăng `version` trong `apps/desktop/package.json` → CI đăng GitHub Release → app đã cài tự cập nhật. Phiên bản có dấu `-` (ví dụ `0.1.0-dev.1`) là bản đang làm, CI không đăng. Chỉ bỏ hậu tố khi đã kiểm thử xong; mỗi bản ghi nhật ký.
+- Trên cloud không chạy agent thật bằng biến môi trường thừa hưởng (sổ lỗi mục 1). Kiểm thử agent dùng agent giả trong `src/main/agent.test.ts`.
 - Không viết lại thứ Agent SDK đã có (Skills, CLAUDE.md, subagents, hooks, MCP, phiên). Lý do: `docs/KE-HOACH.md`.
 - Không đặt tên hay giao diện giống "Claude Code" (quy định của Agent SDK).

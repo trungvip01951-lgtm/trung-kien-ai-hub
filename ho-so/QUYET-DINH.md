@@ -14,3 +14,12 @@ Nghĩa theo câu hỏi đã hỏi:
 2. Giữ quy tắc ngày 22/10/2026 trên cloud: không API key, không dữ liệu thật trên cloud; API key và dữ liệu thật chỉ nằm trong app trên máy anh.
 
 Mục tiêu dự án mở rộng từ "phần mềm chat Zalo" thành ứng dụng AI Agent cho Windows theo `docs/YEU-CAU-GOC.md` (anh gửi 22/10/2026); Zalo là một phần (mục IX.D).
+
+## 22/10/2026 17:16 — phiên Claude Code (web), sau khi cài thử Mốc 0
+> 1. a cài song mở lên hiện như ảnh
+> 2. gắn sẵn rồi để a cài hạn mức
+> 3. e chạy luôn ở đây đi ko cần mở phiên mới
+>
+> app tải về rồi làm song chức năng tiếp có tự cập nhật ko vậy e
+
+Ghi chú: (1) Mốc 0 cài và mở được trên máy anh (ảnh chụp cửa sổ "Trung Kiên AI Hub"). (2) Tổ chức Console đã gắn thẻ; anh tự đặt hạn mức. (3) Làm Mốc 1 trong cùng phiên.

@@ -4,7 +4,7 @@
 
 ## Trạng thái — 22/10/2026
 
-- Đang làm Mốc 0: khung ứng dụng Electron, đóng gói Agent SDK, build file cài Windows bằng GitHub Actions. Chưa có chức năng chat.
+- Mốc 1 (bản 0.1.0): nhập API key (mã hoá DPAPI), chọn dự án, chat với agent theo dòng chữ chạy dần, hiện bước công cụ, hỏi xác nhận trước lệnh/thao tác rủi ro, lịch sử SQLite có tìm kiếm, dừng/tiếp tục hội thoại, đếm token và chi phí, hạn mức việc/ngày/kỳ có chặn cứng, tự cập nhật từ GitHub Releases.
 - Trên cloud không có API key và dữ liệu thật (anh Trung chốt 22/10/2026, xem `ho-so/QUYET-DINH.md`).
 
 ## Cấu trúc
@@ -31,6 +31,8 @@ npm run smoke      # kiểm tra khói: Agent SDK nạp được, không gọi AP
 npm run dist:win   # build file cài Windows (chạy trên Windows)
 ```
 
-## Lấy file cài
+## Lấy file cài và cập nhật
 
-GitHub → tab Actions → quy trình "Build Windows" → lần chạy mới nhất → mục Artifacts → `trung-kien-ai-hub-windows`.
+- Lần đầu: GitHub → mục Releases → bản mới nhất → tải `TrungKienAIHub-Setup-<phiên bản>.exe`.
+- Từ bản 0.1.0 trở đi app tự kiểm tra bản mới khi mở và mỗi 6 giờ, tự tải về, hiện nút "Khởi động lại để cập nhật". Lịch sử, cài đặt, API key nằm ở `%APPDATA%\trung-kien-ai-hub`, cập nhật không làm mất.
+- Phát hành bản mới: tăng `version` trong `apps/desktop/package.json` rồi đẩy mã; CI kiểm thử xong tự đăng Release. Không tăng phiên bản thì CI chỉ build và kiểm tra, không đăng.

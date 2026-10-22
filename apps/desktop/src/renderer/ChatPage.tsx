@@ -1,0 +1,324 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { MODELS } from "../shared/contract";
+import type {
+  ChatItem, Conversation, Effort, HubEvent, ModelId, PermissionLevel, Project, Settings,
+} from "../shared/contract";
+import { EFFORTS, PERMISSIONS, firstLine, usd } from "./util";
+
+type Entry =
+  | { key: string; kind: "item"; item: ChatItem }
+  | { key: string; kind: "draft"; taskId: number; text: string }
+  | { key: string; kind: "pending-user"; text: string }
+  | { key: string; kind: "note"; text: string; tone?: "danger" | "info" };
+
+interface PermReq { requestId: string; toolName: string; summary: string }
+interface Warn { percent: number; message: string }
+interface Usage { inputTokens: number; outputTokens: number; costUsd: number }
+
+let seq = 0;
+const nextKey = () => `k${++seq}`;
+
+function ItemView({ item }: { item: ChatItem }) {
+  if (item.kind === "user") return <div className="msg user"><div className="bubble">{item.text}</div></div>;
+  if (item.kind === "assistant") return <div className="msg assistant"><div className="bubble">{item.text}</div></div>;
+  if (item.kind === "tool_use" || item.kind === "tool_result") {
+    const label = item.kind === "tool_use" ? `Công cụ ${item.toolName ?? ""}` : `Kết quả ${item.toolName ?? ""}`;
+    return (
+      <details className={`step${item.isError ? " err" : ""}`}>
+        <summary><b>{label.trim()}</b> · {firstLine(item.text, 90) || "(trống)"}</summary>
+        <pre>{item.text}</pre>
+      </details>
+    );
+  }
+  return <div className={`note-line${item.kind === "error" ? " danger" : ""}`}>{item.text}</div>;
+}
+
+export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
+  settings: Settings | null; keyTick: number;
+  openRequest: { conversationId: number; nonce: number } | null;
+  onGoSettings: () => void;
+}) {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectId, setProjectId] = useState<number | null>(null);
+  const [convs, setConvs] = useState<Conversation[]>([]);
+  const [convId, setConvId] = useState<number | null>(null);
+  const [entries, setEntries] = useState<Entry[]>([]);
+  const [model, setModel] = useState<ModelId>("claude-sonnet-5-5");
+  const [effort, setEffort] = useState<Effort>("medium");
+  const [permission, setPermission] = useState<PermissionLevel>("read");
+  const [prompt, setPrompt] = useState("");
+  const [hasKey, setHasKey] = useState(true);
+  const [taskId, setTaskId] = useState<number | null>(null);
+  const [error, setError] = useState("");
+  const [warn, setWarn] = useState<Warn | null>(null);
+  const [perms, setPerms] = useState<PermReq[]>([]);
+  const [usage, setUsage] = useState<Usage | null>(null);
+  const [usageEst, setUsageEst] = useState(true);
+  const taskRef = useRef<number | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const projectRef = useRef<number | null>(null);
+  projectRef.current = projectId;
+
+  const setTask = (id: number | null) => { taskRef.current = id; setTaskId(id); };
+  const running = taskId !== null;
+
+  const loadProjects = useCallback(async () => {
+    const list = await window.hub.listProjects();
+    setProjects(list);
+    setProjectId((cur) => cur ?? list[0]?.id ?? null);
+    return list;
+  }, []);
+  const loadConvs = useCallback(async (pid: number | null) => {
+    if (pid == null) { setConvs([]); return; }
+    setConvs(await window.hub.listConversations(pid));
+  }, []);
+
+  useEffect(() => { loadProjects().catch(() => {}); }, [loadProjects]);
+  useEffect(() => { loadConvs(projectId).catch(() => {}); }, [projectId, loadConvs]);
+  useEffect(() => { window.hub.hasApiKey().then(setHasKey).catch(() => {}); }, [keyTick]);
+  useEffect(() => {
+    if (!settings) return;
+    setModel(settings.defaultModel); setEffort(settings.defaultEffort); setPermission(settings.defaultPermission);
+  }, [settings]);
+  useEffect(() => {
+    window.hub.runningTaskId().then((id) => {
+      if (id != null && taskRef.current == null) {
+        setTask(id);
+        setEntries((es) => [...es, { key: nextKey(), kind: "note", text: `Đang có việc #${id} chạy.`, tone: "info" }]);
+      }
+    }).catch(() => {});
+  }, []);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ block: "end" }); }, [entries]);
+
+  const selectConv = useCallback(async (id: number | null) => {
+    setConvId(id);
+    setError("");
+    if (id == null) { setEntries([]); setUsage(null); return; }
+    try {
+      const items = await window.hub.conversationItems(id);
+      setEntries(items.map((item) => ({ key: `i${item.id}`, kind: "item", item })));
+    } catch (e) {
+      setEntries([{ key: nextKey(), kind: "note", text: String(e), tone: "danger" }]);
+    }
+  }, []);
+
+  // Mở hội thoại từ trang Lịch sử.
+  useEffect(() => {
+    if (!openRequest) return;
+    (async () => {
+      const list = await window.hub.listProjects();
+      setProjects(list);
+      for (const p of list) {
+        const cs = await window.hub.listConversations(p.id);
+        if (cs.some((c) => c.id === openRequest.conversationId)) {
+          setProjectId(p.id);
+          setConvs(cs);
+          await selectConv(openRequest.conversationId);
+          return;
+        }
+      }
+    })().catch(() => {});
+  }, [openRequest, selectConv]);
+
+  // Sự kiện từ phần lõi.
+  useEffect(() => {
+    const off = window.hub.onEvent((e: HubEvent) => {
+      switch (e.type) {
+        case "task-started":
+          setTask(e.taskId);
+          setConvId(e.conversationId);
+          loadConvs(projectRef.current).catch(() => {});
+          break;
+        case "budget-warning":
+          setWarn({ percent: e.percent, message: e.message });
+          break;
+        case "permission-request":
+          setPerms((q) => [...q, { requestId: e.requestId, toolName: e.toolName, summary: e.summary }]);
+          break;
+        case "update":
+          break;
+        case "text-delta": {
+          if (e.taskId !== taskRef.current) break;
+          setEntries((es) => {
+            const last = es[es.length - 1];
+            if (last && last.kind === "draft" && last.taskId === e.taskId) {
+              return [...es.slice(0, -1), { ...last, text: last.text + e.text }];
+            }
+            return [...es, { key: nextKey(), kind: "draft", taskId: e.taskId, text: e.text }];
+          });
+          break;
+        }
+        case "item": {
+          const it = e.item;
+          if (it.taskId !== taskRef.current) break;
+          setEntries((es) => {
+            if (es.some((x) => x.kind === "item" && x.item.id === it.id)) return es;
+            let rest = es;
+            if (it.kind === "assistant") rest = es.filter((x) => !(x.kind === "draft" && x.taskId === it.taskId));
+            if (it.kind === "user") rest = es.filter((x) => x.kind !== "pending-user");
+            return [...rest, { key: `i${it.id}`, kind: "item", item: it }];
+          });
+          break;
+        }
+        case "session":
+          if (e.taskId !== taskRef.current) break;
+          setEntries((es) => [...es, {
+            key: nextKey(), kind: "note", tone: "info",
+            text: `Model ${e.model} · đã nạp ${e.skills.length} skills · CLAUDE.md: ${e.claudeMd ? "có" : "không"}`,
+          }]);
+          break;
+        case "usage":
+          if (e.taskId !== taskRef.current) break;
+          setUsage({ inputTokens: e.inputTokens, outputTokens: e.outputTokens, costUsd: e.costUsd });
+          setUsageEst(e.costIsEstimate);
+          break;
+        case "task-finished":
+          setEntries((es) => [
+            ...es.filter((x) => x.kind !== "pending-user" && x.kind !== "draft"),
+            { key: nextKey(), kind: "note", text: e.message, tone: e.task.status === "done" ? "info" : "danger" },
+          ]);
+          setTask(null);
+          setPerms([]);
+          loadConvs(projectRef.current).catch(() => {});
+          break;
+      }
+    });
+    return off;
+  }, [loadConvs]);
+
+  const send = async () => {
+    const text = prompt.trim();
+    if (!text || running || !hasKey || projectId == null) return;
+    setError("");
+    try {
+      const r = await window.hub.startTask({ conversationId: convId, projectId, prompt: text, model, effort, permission });
+      if (!r.ok) { setError(r.message ?? "Không gửi được."); return; }
+      setPrompt("");
+      setUsage(null);
+      if (r.conversationId != null) setConvId(r.conversationId);
+      if (r.taskId != null && taskRef.current == null) setTask(r.taskId);
+      setEntries((es) => es.some((x) => x.kind === "item" && x.item.kind === "user" && x.item.taskId === r.taskId)
+        ? es : [...es, { key: nextKey(), kind: "pending-user", text }]);
+      loadConvs(projectId).catch(() => {});
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+  const stop = async () => { if (taskId != null) await window.hub.stopTask(taskId); };
+  const answer = async (allow: boolean) => {
+    const cur = perms[0];
+    if (!cur) return;
+    setPerms((q) => q.slice(1));
+    await window.hub.answerPermission(cur.requestId, allow);
+  };
+  const addProject = async () => {
+    const p = await window.hub.addProject();
+    if (p) { await loadProjects(); setProjectId(p.id); setConvId(null); setEntries([]); }
+  };
+
+  const noProject = projectId == null;
+  const perm = perms[0];
+
+  return (
+    <div className="chat">
+      {warn && (
+        <div className={`banner ${warn.percent >= 100 ? "danger" : "warn"}`}>
+          <span>{warn.message}</span>
+          <button className="link" onClick={() => setWarn(null)}>Đóng</button>
+        </div>
+      )}
+      <div className="chat-body">
+        <aside className="convs">
+          <div className="field-label">Dự án</div>
+          <select value={projectId ?? ""} disabled={running} onChange={(e) => { setProjectId(Number(e.target.value)); setConvId(null); setEntries([]); }}>
+            {projects.length === 0 && <option value="">(chưa có dự án)</option>}
+            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <button onClick={addProject} disabled={running}>Thêm dự án</button>
+          <button className="primary" disabled={running || noProject} onClick={() => selectConv(null)}>Hội thoại mới</button>
+          <div className="field-label">Hội thoại</div>
+          <div className="conv-list">
+            {convs.map((c) => (
+              <button key={c.id} className={`conv${c.id === convId ? " active" : ""}`} disabled={running} onClick={() => selectConv(c.id)}>
+                <span>{c.title || `Hội thoại #${c.id}`}</span>
+                <span className="muted small">{usd(c.costUsd)} USD</span>
+              </button>
+            ))}
+            {convs.length === 0 && <div className="muted small">Chưa có hội thoại.</div>}
+          </div>
+        </aside>
+
+        <section className="main">
+          <div className="toolbar">
+            <label>Model
+              <select value={model} onChange={(e) => setModel(e.target.value as ModelId)}>
+                {MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+              </select>
+            </label>
+            <label>Suy nghĩ
+              <select value={effort} onChange={(e) => setEffort(e.target.value as Effort)}>
+                {EFFORTS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+              </select>
+            </label>
+            <label>Quyền
+              <select value={permission} onChange={(e) => setPermission(e.target.value as PermissionLevel)}>
+                {PERMISSIONS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+              </select>
+            </label>
+          </div>
+
+          <div className="messages">
+            {!hasKey && (
+              <div className="card">
+                <b>Chưa có API key</b> — vào Cài đặt để nhập.
+                <div><button className="primary" onClick={onGoSettings}>Mở Cài đặt</button></div>
+              </div>
+            )}
+            {entries.length === 0 && hasKey && <div className="muted empty">Hãy nhập yêu cầu bên dưới để bắt đầu.</div>}
+            {entries.map((en) => {
+              if (en.kind === "item") return <ItemView key={en.key} item={en.item} />;
+              if (en.kind === "draft") return <div key={en.key} className="msg assistant"><div className="bubble typing">{en.text}</div></div>;
+              if (en.kind === "pending-user") return <div key={en.key} className="msg user"><div className="bubble">{en.text}</div></div>;
+              return <div key={en.key} className={`note-line${en.tone === "danger" ? " danger" : ""}`}>{en.text}</div>;
+            })}
+            <div ref={bottomRef} />
+          </div>
+
+          {error && <div className="alert danger">{error}</div>}
+          <div className="composer">
+            <textarea
+              value={prompt}
+              rows={3}
+              placeholder={noProject ? "Hãy thêm một dự án trước." : "Nhập yêu cầu… (Ctrl+Enter để gửi)"}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && e.ctrlKey) { e.preventDefault(); void send(); } }}
+            />
+            <div className="col">
+              <button className="primary" disabled={running || !hasKey || noProject || !prompt.trim()} onClick={send}>Gửi</button>
+              {running && <button className="danger-btn" onClick={stop}>Dừng</button>}
+            </div>
+          </div>
+          <div className="footer-line muted small">
+            {usage
+              ? `Token vào/ra ${usage.inputTokens} / ${usage.outputTokens} · Chi phí ${usageEst ? "~" : ""}${usd(usage.costUsd)} USD (ước tính)`
+              : running ? "Đang chạy…" : "Chưa có số liệu cho việc này."}
+          </div>
+        </section>
+      </div>
+
+      {perm && (
+        <div className="overlay">
+          <div className="dialog" role="dialog" aria-modal="true">
+            <h3>AI muốn dùng công cụ {perm.toolName}</h3>
+            <pre className="mono summary">{perm.summary}</pre>
+            {perms.length > 1 && <div className="muted small">Còn {perms.length - 1} yêu cầu đang chờ.</div>}
+            <div className="row end">
+              <button className="danger-btn" onClick={() => answer(false)}>Từ chối</button>
+              <button className="primary" onClick={() => answer(true)}>Cho phép</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

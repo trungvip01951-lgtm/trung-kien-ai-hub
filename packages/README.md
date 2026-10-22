@@ -1,14 +1,14 @@
 # Các gói dùng chung
 
-Tạo dần theo mốc trong `docs/KE-HOACH.md`, mỗi gói một thư mục, chỉ tạo khi có mã thật:
+Từ Mốc 1, mã lõi nằm trong `apps/desktop/src/main/` (một ứng dụng duy nhất dùng nên chưa tách gói, tránh phức tạp khi đóng gói). Tách ra đây khi có ứng dụng hoặc dịch vụ thứ hai cần dùng chung.
 
-| Gói | Mốc | Việc |
+| Gói dự kiến (yêu cầu gốc mục XIV) | Hiện ở | Mốc |
 |---|---|---|
-| `agent-core` | 1 | Gọi Agent SDK, phiên, tiếp tục phiên |
-| `usage-monitor` | 1 | Đếm token, chi phí, hạn mức, chặn cứng |
-| `memory` | 1 | SQLite + FTS5: lịch sử, tìm kiếm |
-| `security` | 1 | Lưu API key (DPAPI), ba mức quyền |
-| `project-manager` | 1 | Danh sách dự án, thư mục gốc |
-| `browser-automation` | 2 | Chrome qua Playwright MCP |
-| `skills-manager`, `mcp-manager` | 3 | Nhập, bật/tắt Skills và MCP |
-| `windows-automation` | 4 | Điều khiển Windows |
+| `agent-core` | `src/main/agent.ts` | 1 |
+| `usage-monitor` | `src/main/budget.ts`, `pricing.ts` | 1 |
+| `memory` | `src/main/db.ts` (SQLite + FTS5) | 1 |
+| `security` | `src/main/keystore.ts`, `policy.ts` | 1 |
+| `project-manager` | `src/main/db.ts` (bảng projects) | 1 |
+| `browser-automation` | chưa có | 2 |
+| `skills-manager`, `mcp-manager` | chưa có (SDK tự nạp Skills/MCP từ `.claude/`) | 3 |
+| `windows-automation` | chưa có | 4 |
