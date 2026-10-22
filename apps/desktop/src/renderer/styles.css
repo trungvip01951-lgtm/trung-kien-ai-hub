@@ -103,3 +103,16 @@ textarea { resize: vertical; width: 100%; }
 .summary { background: var(--panel2); border-radius: 6px; padding: 10px; max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 12px; }
 .nowrap { white-space: nowrap; } .nowrap button { margin-right: 4px; }
 .text-danger { color: var(--danger, #c0392b); }
+
+/* Mốc 3: Skills, quét dự án, hướng dẫn dự án */
+.check { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; font-size: 13px; }
+.check input { margin-top: 3px; }
+.brand { display: flex; align-items: center; gap: 8px; }
+.brand img { width: 28px; height: 28px; border-radius: 6px; }
+.tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.table td.wrap { max-width: 280px; word-break: break-word; }
+.table tr.excluded td { opacity: .55; }
+.badge.warn { background: var(--warn-bg); color: var(--warn); }
+.dialog.wide { width: min(900px, 94vw); max-height: 86vh; overflow-y: auto; }
+.preview-file { white-space: pre-wrap; max-height: 360px; overflow: auto; background: var(--panel2); border-radius: 6px; padding: 10px; }
+.table-scroll { overflow-x: auto; }

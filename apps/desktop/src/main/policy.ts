@@ -47,13 +47,14 @@ function fileArg(input: unknown): string | null {
 }
 
 // Ba mức quyền theo yêu cầu gốc (mục XIII). Hành động ra ngoài luôn hỏi anh Trung.
-export function decide(level: PermissionLevel, toolName: string, input: unknown, projectDir: string): Decision {
+export function decide(level: PermissionLevel, toolName: string, input: unknown, projectDir: string, extraReadDirs: string[] = []): Decision {
   const i = (input ?? {}) as Record<string, unknown>;
   if (SAFE.has(toolName)) return { decision: "allow", reason: "Công cụ điều phối" };
 
   if (FILE_READ.has(toolName)) {
     const p = fileArg(input);
     if (!p || isInside(projectDir, path.resolve(projectDir, p))) return { decision: "allow", reason: "Đọc trong dự án" };
+    if (extraReadDirs.some((d) => isInside(d, path.resolve(projectDir, p)))) return { decision: "allow", reason: "Đọc tài liệu của Skill" };
     return { decision: "ask", reason: "Đọc file ngoài thư mục dự án" };
   }
 

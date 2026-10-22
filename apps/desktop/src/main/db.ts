@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import type { ChatItem, Conversation, ItemKind, Project, SearchHit, Settings, TaskRow, TaskStatus } from "../shared/contract";
+import type { ChatItem, Conversation, InventoryRow, ItemKind, Project, SearchHit, Settings, TaskRow, TaskStatus } from "../shared/contract";
 import { DEFAULT_LIMITS } from "./budget";
 
 // Lưu trữ cục bộ bằng SQLite có sẵn trong Node (node:sqlite), tìm kiếm bằng FTS5.
@@ -7,7 +7,8 @@ import { DEFAULT_LIMITS } from "./budget";
 
 export const DEFAULT_SETTINGS: Settings = {
   limits: DEFAULT_LIMITS, defaultModel: "claude-sonnet-5-5", defaultEffort: "medium",
-  defaultPermission: "write", theme: "system",
+  defaultPermission: "write", theme: "system", autoRouting: true,
+  chrome: { enabled: true, browser: "chrome", sites: [] },
 };
 
 const SCHEMA = `
@@ -63,6 +64,11 @@ export class HubDb {
           this.db.exec("ALTER TABLE conversations ADD COLUMN session_total_ok INTEGER NOT NULL DEFAULT 1");
         }
       },
+      // 0.3.0: hướng dẫn dự án, bảng kiểm kê dự án (PROJECT_INVENTORY).
+      () => {
+        if (!cols("projects").includes("instructions")) this.db.exec("ALTER TABLE projects ADD COLUMN instructions TEXT NOT NULL DEFAULT ''");
+        this.db.exec("CREATE TABLE IF NOT EXISTS inventory (path TEXT PRIMARY KEY, data TEXT NOT NULL, scanned_at TEXT NOT NULL)");
+      },
     ];
     const v = Number((this.db.prepare("PRAGMA user_version").get() as Row).user_version);
     for (let i = v; i < steps.length; i++) {
@@ -84,7 +90,7 @@ export class HubDb {
     const row = this.db.prepare("SELECT value FROM settings WHERE key='app'").get() as Row | undefined;
     if (!row) return structuredClone(DEFAULT_SETTINGS);
     const saved = JSON.parse(String(row.value)) as Partial<Settings>;
-    return { ...DEFAULT_SETTINGS, ...saved, limits: { ...DEFAULT_SETTINGS.limits, ...saved.limits } };
+    return { ...DEFAULT_SETTINGS, ...saved, limits: { ...DEFAULT_SETTINGS.limits, ...saved.limits }, chrome: { ...DEFAULT_SETTINGS.chrome, ...saved.chrome } };
   }
 
   saveSettings(s: Settings) {
@@ -101,6 +107,40 @@ export class HubDb {
   getProject(id: number): Project | null {
     const r = this.db.prepare("SELECT * FROM projects WHERE id=?").get(id) as Row | undefined;
     return r ? toProject(r) : null;
+  }
+
+  saveProjectInstructions(id: number, text: string): Project | null {
+    this.db.prepare("UPDATE projects SET instructions=? WHERE id=?").run(text, id);
+    return this.getProject(id);
+  }
+
+  // Lưu kết quả quét (thay dòng cũ cùng đường dẫn, giữ dòng của thư mục khác).
+  saveInventory(rows: InventoryRow[]) {
+    const t = now();
+    const st = this.db.prepare("INSERT INTO inventory(path, data, scanned_at) VALUES(?,?,?) ON CONFLICT(path) DO UPDATE SET data=excluded.data, scanned_at=excluded.scanned_at");
+    for (const r of rows) st.run(r.path, JSON.stringify(r), t);
+  }
+
+  listInventory(): { rows: InventoryRow[]; scannedAt: string | null } {
+    const rs = this.db.prepare("SELECT data, scanned_at FROM inventory ORDER BY path").all() as Row[];
+    return { rows: rs.map((r) => JSON.parse(String(r.data)) as InventoryRow),
+      scannedAt: rs.reduce<string | null>((m, r) => (m && m > String(r.scanned_at) ? m : String(r.scanned_at)), null) };
+  }
+
+  // Tiếp tục một phiên Claude Code cũ: tạo hội thoại gắn session_id đó. Tổng chi phí cũ của phiên không biết
+  // (session_total_usd = -1): lần chạy đầu tính theo ước tính token nhân hệ số an toàn.
+  importSession(projectId: number, sessionId: string, title: string): Conversation {
+    const found = this.db.prepare("SELECT id FROM conversations WHERE session_id=? AND project_id=?").get(sessionId, projectId) as Row | undefined;
+    if (found) return this.getConversation(Number(found.id))!;
+    const t = now();
+    const r = this.db.prepare(`INSERT INTO conversations(project_id, title, session_id, session_total_usd, session_total_ok, created_at, updated_at)
+      VALUES(?,?,?,-1,0,?,?)`).run(projectId, title, sessionId, t, t);
+    return this.getConversation(Number(r.lastInsertRowid))!;
+  }
+
+  sessionIdsOfProject(projectId: number): Set<string> {
+    const rs = this.db.prepare("SELECT session_id FROM conversations WHERE project_id=? AND session_id IS NOT NULL").all(projectId) as Row[];
+    return new Set(rs.map((r) => String(r.session_id)));
   }
 
   listProjects(): Project[] {
@@ -207,7 +247,7 @@ export class HubDb {
 }
 
 function toProject(r: Row): Project {
-  return { id: Number(r.id), name: String(r.name), path: String(r.path), createdAt: String(r.created_at) };
+  return { id: Number(r.id), name: String(r.name), path: String(r.path), createdAt: String(r.created_at), instructions: String(r.instructions ?? "") };
 }
 function toConversation(r: Row): Conversation {
   return { id: Number(r.id), projectId: Number(r.project_id), title: String(r.title), sessionId: (r.session_id as string) ?? null,

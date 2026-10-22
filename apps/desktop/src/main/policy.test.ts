@@ -60,3 +60,10 @@ test("cài đặt đổi máy chủ API hoặc nguồn khoá thì từ chối ch
   writeFileSync(f, JSON.stringify({ apiKeyHelper: "echo key" }));
   assert.ok(checkSettings([f])?.includes("apiKeyHelper"));
 });
+
+test("đọc tài liệu trong kho Skill của app không cần hỏi, nơi khác ngoài dự án vẫn hỏi", () => {
+  const proj = path.join(os.tmpdir(), "du-an-x");
+  const kho = path.join(os.tmpdir(), "kho-skill", "plugin");
+  assert.equal(decide("read", "Read", { file_path: path.join(kho, "skills", "a", "ref.md") }, proj, [kho]).decision, "allow");
+  assert.equal(decide("read", "Read", { file_path: path.join(os.tmpdir(), "khac.txt") }, proj, [kho]).decision, "ask");
+});

@@ -12,7 +12,7 @@ import type { KeyEntry } from "./keys";
 // Agent giả: phát lại các tin nhắn kịch bản, không gọi API thật.
 type Script = (opts: Options, ctl: { interrupted: () => boolean }) => AsyncGenerator<SDKMessage>;
 
-function setup(script: Script, apiKey: string | null = "sk-ant-api03-gia", extraKeys: string[] = []) {
+function setup(script: Script, apiKey: string | null = "sk-ant-api03-gia", extraKeys: string[] = [], skills?: { pluginPath(): string | null; readableRoot(): string }) {
   const all = apiKey ? [apiKey, ...extraKeys] : [];
   const entries: KeyEntry[] = all.map((k, i) => ({ id: `k${i + 1}`, label: `Key ${i + 1}`, key: k, addedAt: "" }));
   const marks: string[] = [];
@@ -27,7 +27,7 @@ function setup(script: Script, apiKey: string | null = "sk-ant-api03-gia", extra
   const calls: Options[] = [];
   let interrupted = false;
   const runner = new AgentRunner({
-    db, emit: (e) => events.push(e), keys, claudePath: "/khong/can", appVersion: "0.0.0-test",
+    db, emit: (e) => events.push(e), keys, skills, claudePath: "/khong/can", appVersion: "0.0.0-test",
     query: ({ options }) => {
       calls.push(options!);
       const gen = script(options!, { interrupted: () => interrupted });
@@ -253,4 +253,38 @@ test("key chưa gắn workspace (SDK ném lỗi): chuyển sang key kế tiếp,
   assert.equal(task.status, "done");
   assert.equal(t.calls.length, 2);
   assert.ok(t.marks.some((m) => m.startsWith("k1:err:Key không thuộc workspace")));
+});
+
+test("nạp kho Skill của app, AI phụ chia việc và hướng dẫn dự án vào tuỳ chọn agent", async () => {
+  const kho = { pluginPath: () => "/du-lieu/skills/plugin", readableRoot: () => "/du-lieu/skills/plugin" };
+  const t = setup(async function* () { yield init(); yield result(0.001); }, "sk-ant-api03-gia", [], kho);
+  t.db.saveProjectInstructions(t.project.id, "Luôn trả lời tiếng Việt");
+  const r = await t.runner.start(input(t.project.id));
+  await r.done;
+  const o = t.calls[0];
+  assert.deepEqual(o.plugins, [{ type: "local", path: "/du-lieu/skills/plugin", skipMcpDiscovery: true }]);
+  assert.deepEqual(Object.keys(o.agents ?? {}).sort(), ["tro-ly-co-hoc", "tro-ly-phan-tich", "tro-ly-thuc-thi"]);
+  assert.equal(o.agents!["tro-ly-co-hoc"].model, "claude-haiku-5-5");
+  assert.equal(o.agents!["tro-ly-phan-tich"].effort, "high");
+  assert.match((o.systemPrompt as { prompt: string }).prompt, /Luôn trả lời tiếng Việt/);
+
+  // Tắt tự chia việc, không có hướng dẫn, chưa có Skill: giữ như bản 0.2.x.
+  const t2 = setup(async function* () { yield init(); yield result(0.001); });
+  t2.db.saveSettings({ ...t2.db.getSettings(), autoRouting: false });
+  await (await t2.runner.start(input(t2.project.id))).done;
+  assert.equal(t2.calls[0].plugins, undefined);
+  assert.equal(t2.calls[0].agents, undefined);
+  assert.equal(t2.calls[0].systemPrompt, undefined);
+});
+
+test("tiếp tục phiên Claude Code cũ: lần đầu không tính chi phí lịch sử ngoài app", async () => {
+  const t = setup(async function* () { yield init(); yield assistant("m1", [{ type: "text", text: "Tiếp" }]); yield result(20); });
+  const c = t.db.importSession(t.project.id, "phien-cu", "[Phiên cũ]");
+  const r = await t.runner.start(input(t.project.id, c.id));
+  const task = await r.done!;
+  assert.equal(t.calls[0].resume, "phien-cu");
+  assert.ok(task.costUsd < 1, `tính ${task.costUsd} USD, không được gồm 20 USD lịch sử`);
+  assert.ok(task.costUsd > 0);
+  const conv = t.db.getConversation(c.id)!;
+  assert.equal(conv.sessionTotalUsd, 20);      // từ lần sau trừ theo tổng này
 });

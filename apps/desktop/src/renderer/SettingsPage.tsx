@@ -119,6 +119,12 @@ export function SettingsPage({ settings, onSettings, onKeyChanged }: {
               </select>
             </label>
           </div>
+          <label className="check">
+            <input type="checkbox" checked={settings.autoRouting} onChange={(e) => patch({ autoRouting: e.target.checked })} />
+            <span><b>Tự chia việc đúng sức</b>: trong một việc, AI chính tự giao phần cơ học cho Haiku 5.5, phần làm theo yêu cầu rõ cho
+              Sonnet 5.5 (suy nghĩ vừa), phần cần phán đoán và nghiệm thu cho Opus 5.5 (suy nghĩ cao). Model chọn ở Chat là AI chính điều phối.
+              Chi phí AI phụ vẫn tính vào hạn mức.</span>
+          </label>
         </div>
       )}
       <div className="muted small">Trung Kiên AI Hub · phiên bản {version || "…"}</div>

@@ -53,3 +53,22 @@ test("việc đang chạy khi app tắt đột ngột được đánh dấu bị
   assert.equal(db.markInterrupted(), 1);
   assert.equal(db.getTask(t)!.status, "interrupted");
 });
+
+test("nâng cấp tệp dữ liệu bản 0.2.x: thêm hướng dẫn dự án, kiểm kê, nhập phiên cũ", () => {
+  const file = path.join(mkdtempSync(path.join(os.tmpdir(), "hubdb-")), "hub.db");
+  let db = new HubDb(file);
+  const p = db.addProject("Mẫu", "/tmp/mau-nang-cap");
+  assert.equal(db.getProject(p.id)!.instructions, "");
+  db.saveProjectInstructions(p.id, "Quy tắc mẫu");
+  const c = db.importSession(p.id, "phien-cu-1", "[Phiên cũ] mẫu");
+  assert.equal(db.importSession(p.id, "phien-cu-1", "x").id, c.id);
+  const conv = db.getConversation(c.id)!;
+  assert.equal(conv.sessionId, "phien-cu-1");
+  assert.equal(conv.sessionTotalOk, false);
+  assert.equal(conv.sessionTotalUsd, -1);
+  db.close();
+  db = new HubDb(file);
+  assert.equal(db.getProject(p.id)!.instructions, "Quy tắc mẫu");
+  assert.ok(db.sessionIdsOfProject(p.id).has("phien-cu-1"));
+  db.close();
+});

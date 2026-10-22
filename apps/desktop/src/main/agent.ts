@@ -8,6 +8,7 @@ import { decide, summarizeInput } from "./policy";
 import { estimateCostUsd, type TokenUsage } from "./pricing";
 import { keyErrorReason, type KeyEntry } from "./keys";
 import { checkSettings, settingsFiles } from "./settings-guard";
+import { buildSystemPrompt, ROUTED_AGENTS } from "./routing";
 
 export type QueryFn = (args: { prompt: string; options?: Options }) => Query;
 
@@ -18,6 +19,8 @@ export interface AgentDeps {
   keys: { forUse(): KeyEntry[]; get(id: string): KeyEntry | null; markError(id: string, reason: string): void; markOk(id: string): void };
   emit: (e: HubEvent) => void;
   claudePath: string;
+  // Kho Skills của app (nạp cho agent như plugin cục bộ); agent được đọc tệp trong đó không cần hỏi.
+  skills?: { pluginPath(): string | null; readableRoot(): string };
   appVersion: string;
   now?: () => Date;
 }
@@ -136,10 +139,14 @@ export class AgentRunner {
 
     const taskId = db.createTask({ conversationId: conv.id, prompt, model: input.model, effort: input.effort, permission: input.permission, allowanceUsd: u.allowedUsd });
     const level = input.permission;
+    const extraRead = this.deps.skills ? [this.deps.skills.readableRoot()] : [];
+    const pluginPath = this.deps.skills?.pluginPath() ?? null;
+    const autoRouting = db.getSettings().autoRouting;
+    const systemPrompt = buildSystemPrompt(project.instructions, autoRouting);
 
     const preToolUse: HookCallback = async (hookInput, _id, { signal }) => {
       if (hookInput.hook_event_name !== "PreToolUse") return {};
-      const d = decide(level, hookInput.tool_name, hookInput.tool_input, project.path);
+      const d = decide(level, hookInput.tool_name, hookInput.tool_input, project.path, extraRead);
       let decision = d.decision;
       if (decision === "ask") decision = (await this.askUser(taskId, hookInput.tool_name, hookInput.tool_input, signal)) ? "allow" : "deny";
       const reason = decision === "deny" && d.decision === "ask" ? "Anh Trung không cho phép thao tác này." : d.reason;
@@ -148,7 +155,7 @@ export class AgentRunner {
     };
     // Lưới an toàn: nếu cấu hình khác vẫn khiến SDK hỏi quyền, cũng hỏi anh Trung.
     const canUseTool: CanUseTool = async (toolName, toolInput, { signal }) => {
-      const d = decide(level, toolName, toolInput, project.path);
+      const d = decide(level, toolName, toolInput, project.path, extraRead);
       if (d.decision === "deny") return { behavior: "deny", message: d.reason };
       if (d.decision === "allow" || (await this.askUser(taskId, toolName, toolInput, signal))) return { behavior: "allow", updatedInput: d.updatedInput ?? toolInput };
       return { behavior: "deny", message: "Anh Trung không cho phép thao tác này." };
@@ -168,6 +175,9 @@ export class AgentRunner {
       pathToClaudeCodeExecutable: this.deps.claudePath,
       hooks: { PreToolUse: [{ hooks: [preToolUse], timeout: HOOK_TIMEOUT_S }] },
       canUseTool,
+      ...(pluginPath ? { plugins: [{ type: "local" as const, path: pluginPath, skipMcpDiscovery: true }] } : {}),
+      ...(autoRouting ? { agents: ROUTED_AGENTS } : {}),
+      ...(systemPrompt ? { systemPrompt } : {}),
       ...(resume ? { resume } : {}),
     });
 
@@ -310,7 +320,9 @@ export class AgentRunner {
           // Nếu việc trước trong hội thoại không kết thúc bằng result (bị dừng, lỗi, tắt app) thì không chắc
           // tổng cũ, nên lấy số lớn hơn giữa phần chênh và ước tính riêng nhân hệ số an toàn (đếm dư, không đếm thiếu).
           const total = m.total_cost_usd;
-          const delta = total >= prevSessionTotal ? total - prevSessionTotal : total;
+          // Phiên Claude Code cũ nhập vào (tổng cũ < 0 = không biết): total có thể gồm chi phí lịch sử ngoài app,
+          // nên lần đầu tính theo ước tính token nhân hệ số an toàn; các lần sau trừ theo tổng đã lưu.
+          const delta = prevSessionTotal < 0 ? 0 : total >= prevSessionTotal ? total - prevSessionTotal : total;
           resultCost = Math.max(delta, attemptEstimate() * (prevTotalOk ? 1 : ESTIMATE_SAFETY));
           db.setSessionTotal(conversationId, total, true);
           // Lỗi như sai API key vẫn trả subtype "success" nhưng is_error = true.

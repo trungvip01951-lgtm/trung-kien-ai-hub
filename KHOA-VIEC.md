@@ -10,3 +10,4 @@ Trước khi ghi: thêm 1 dòng. Xong hoặc dừng: điền giờ nhả và k�
 | Claude-1 (Claude Code, phiên web) | apps/desktop: nút cập nhật, bản 0.1.1 | 22/10/2026 17:47 | 22/10/2026 17:48 | Xong, đăng Release v0.1.1 |
 | Claude-1 (Claude Code, phiên web) | apps/desktop: nhiều API key tự chuyển, bản 0.2.0 | 22/10/2026 19:38 | 22/10/2026 19:46 | Xong, đăng Release v0.2.0 |
 | Claude-1 (Claude Code, phiên web) | apps/desktop: báo lỗi key chưa gắn workspace, bản 0.2.1 | 22/10/2026 20:47 | 22/10/2026 20:48 | Xong, đăng Release v0.2.1 |
+| Claude-1 (Claude Code, phiên web mới) | Toàn bộ repo: Mốc 3 (Skills, quét dự án) rồi Mốc 2 (Chrome) | 22/10/2026 21:02 | | |

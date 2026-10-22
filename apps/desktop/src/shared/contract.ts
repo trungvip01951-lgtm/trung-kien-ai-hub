@@ -17,7 +17,37 @@ export interface ApiKeyInfo {
   lastError: string | null; lastErrorAt: string | null; lastUsedAt: string | null;
 }
 
-export interface Project { id: number; name: string; path: string; createdAt: string }
+// instructions: "Hướng dẫn dự án" anh Trung soạn trong app, gửi kèm mỗi việc của dự án (không ghi vào thư mục dự án).
+export interface Project { id: number; name: string; path: string; createdAt: string; instructions: string }
+
+// Skill trong kho của app (mục Skills). Agent gọi bằng invokeName ("tkhub:<tên>").
+export interface SkillInfo {
+  name: string; invokeName: string; description: string; enabled: boolean;
+  deleted: boolean;           // đã xoá: chỉ còn bản cũ, khôi phục được
+  files: number; bytes: number; hasScripts: boolean; updatedAt: string;
+  backups: string[];          // các bản cũ, mới nhất trước
+}
+
+export interface SkillImportPreview {
+  id: string; source: string;
+  items: { key: string; folder: string; name: string; description: string; files: number; bytes: number;
+    hasScripts: boolean; status: "new" | "replace" | "error"; error: string | null }[];
+}
+
+// Một dòng PROJECT_INVENTORY (yêu cầu gốc mục II). Chỉ đọc từ thư mục dự án.
+export interface InventoryRow {
+  path: string; name: string; projectId: number | null;
+  excluded: string | null;            // lý do không cho đưa vào (dự án Thịnh Vượng)
+  instructions: string[];             // CLAUDE.md, AGENTS.md...
+  skills: string[]; agents: string[]; commands: number; hooks: boolean; mcp: string[];
+  docs: string[]; deps: string[]; git: string;
+  current: string; next: string; handoffFile: string | null;   // trích nguyên văn từ sổ bàn giao
+  settingsWarning: string | null; updatedAt: string;
+  oldSessions: number | null;         // số phiên Claude Code cũ của thư mục này (null: chưa đọc được)
+}
+
+// Phiên Claude Code cũ (đọc bằng listSessions của Agent SDK) để tiếp tục trong app.
+export interface OldSession { sessionId: string; title: string; lastModified: string; sizeBytes: number | null; gitBranch: string | null; imported: boolean }
 
 export interface Conversation {
   id: number; projectId: number; title: string; sessionId: string | null;
@@ -51,9 +81,21 @@ export interface UsageSummary {
   remainingForNextTaskUsd: number; blockedReason: string | null;
 }
 
+// Quyền theo website khi điều khiển trình duyệt: chỉ xem / hỏi từng thao tác / tự làm thao tác thường
+// (thao tác đăng, lưu, gửi, xoá, thanh toán, đăng nhập luôn hỏi).
+export type SiteMode = "read" | "ask" | "auto";
+export interface ChromeSettings {
+  enabled: boolean;
+  browser: "chrome" | "msedge";        // trình duyệt đã cài trên máy; hồ sơ riêng của app
+  sites: { host: string; mode: SiteMode }[];
+}
+
 export interface Settings {
   limits: Limits; defaultModel: ModelId; defaultEffort: Effort;
   defaultPermission: PermissionLevel; theme: "system" | "light" | "dark";
+  // Tự chia việc cho AI phụ đúng sức (Haiku/Sonnet/Opus, mức suy nghĩ riêng) trong cùng một việc.
+  autoRouting: boolean;
+  chrome: ChromeSettings;
 }
 
 // Sự kiện phần lõi đẩy lên giao diện trong lúc chạy việc.
@@ -93,6 +135,24 @@ export interface HubApi {
 
   listProjects(): Promise<Project[]>;
   addProject(): Promise<Project | null>;            // mở hộp thoại chọn thư mục
+  addProjectPath(path: string): Promise<{ ok: boolean; message: string; project?: Project }>;
+  saveProjectInstructions(projectId: number, text: string): Promise<Project | null>;
+  readProjectFile(projectId: number, rel: string): Promise<string | null>;   // xem CLAUDE.md, sổ bàn giao (chỉ đọc)
+  scanFolder(): Promise<{ rows: InventoryRow[]; truncated: boolean; root: string } | null>;  // mở hộp thoại chọn thư mục
+  lastInventory(): Promise<{ rows: InventoryRow[]; scannedAt: string | null }>;
+  listOldSessions(projectId: number): Promise<OldSession[]>;
+  importOldSession(projectId: number, sessionId: string): Promise<{ ok: boolean; message: string; conversationId?: number }>;
+
+  listSkills(): Promise<SkillInfo[]>;
+  previewSkillUpload(kind: "zip" | "folder"): Promise<SkillImportPreview | { error: string } | null>;
+  commitSkillUpload(id: string, keys: string[]): Promise<{ imported: string[]; message: string }>;
+  cancelSkillUpload(id: string): Promise<void>;
+  setSkillEnabled(name: string, enabled: boolean): Promise<void>;
+  removeSkill(name: string): Promise<void>;
+  restoreSkill(name: string, stamp: string): Promise<{ ok: boolean; message: string }>;
+
+  // Mở trình duyệt với hồ sơ riêng của app để anh Trung tự đăng nhập các website (app không xem mật khẩu).
+  openBrowserProfile(): Promise<{ ok: boolean; message: string }>;
   listConversations(projectId: number): Promise<Conversation[]>;
   conversationItems(conversationId: number): Promise<ChatItem[]>;
   search(query: string): Promise<SearchHit[]>;

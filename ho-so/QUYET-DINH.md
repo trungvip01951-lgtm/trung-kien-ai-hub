@@ -41,3 +41,16 @@ Nghĩa theo câu hỏi đã hỏi:
 1. Làm Mốc 3 (nhập dự án và Skills cũ) trước, xong làm luôn Mốc 2 (điều khiển Chrome), không cần chờ duyệt giữa hai mốc.
 2. Làm trong cuộc trò chuyện mới; phiên mới đọc bàn giao trong repo.
 3. Có màn hình tải Skill lên (giống tải Skill trên claude.ai) để anh tự thêm Skill; ngoài ra app chỉ quét các thư mục anh chọn (không tự dò toàn máy).
+
+## 22/10/2026 21:02 — phiên Claude Code (web), giao việc đầu phiên
+> 1. Làm Mốc 3 rồi Mốc 2 Trung Kiên AI Hub theo bàn giao, nhánh claude/intelligent-hopper-v2t54v
+
+## 22/10/2026 ~21:08 — phiên Claude Code (web), nhắn giữa chừng
+> đổi logo app và thêm mục hướng dẫn dự án trong mõi dự án nữa cho a nhé
+
+Cách hiểu đã làm: logo mới do Claude thiết kế (anh chưa gửi ảnh, muốn đổi thì gửi ảnh để thay); "Hướng dẫn dự án" là ô soạn quy tắc riêng cho từng dự án trong app, gửi kèm mọi việc của dự án đó, không ghi vào thư mục dự án.
+
+## 22/10/2026 ~21:12 — phiên Claude Code (web), nhắn giữa chừng
+> app cps thể tự đổi mô hình AI và mức nỗ lực mỗi AI trong cùng 1 công việc để phù hợp việc nó lmà nhé cái này là tự động đảm bảo cách làm tiết kiệm nhưng vẫn phải chính xác nhất nhé
+
+Cách làm: tự chia việc cho 3 AI phụ (Haiku 5.5 việc cơ học; Sonnet 5.5 suy nghĩ vừa; Opus 5.5 suy nghĩ cao), bật mặc định, tắt được trong Cài đặt.

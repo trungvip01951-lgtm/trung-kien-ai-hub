@@ -6,13 +6,15 @@ import { TasksPage } from "./TasksPage";
 import { HistoryPage } from "./HistoryPage";
 import { CostPage } from "./CostPage";
 import { SettingsPage } from "./SettingsPage";
+import { SkillsPage } from "./SkillsPage";
+import logo from "./logo.svg";
 import { Placeholder } from "./util";
 
 const NAV: { id: string; label: string; todo?: boolean }[] = [
   { id: "chat", label: "Chat AI" },
   { id: "projects", label: "Dự án" },
   { id: "tasks", label: "Công việc đang chạy" },
-  { id: "skills", label: "Skills", todo: true },
+  { id: "skills", label: "Skills" },
   { id: "agents", label: "Agents", todo: true },
   { id: "mcp", label: "MCP và công cụ", todo: true },
   { id: "chrome", label: "Chrome", todo: true },
@@ -61,7 +63,7 @@ export function App() {
   return (
     <div className="shell">
       <nav className="sidebar">
-        <div className="brand">Trung Kiên AI Hub</div>
+        <div className="brand"><img src={logo} alt="" />Trung Kiên AI Hub</div>
         <div className="nav-list">
           {NAV.map((n) => (
             <button key={n.id} className={`nav-item${nav === n.id ? " active" : ""}${n.todo ? " todo" : ""}`} onClick={() => go(n.id)}>
@@ -75,7 +77,8 @@ export function App() {
         <div className="pane" hidden={nav !== "chat"}>
           <ChatPage settings={settings} keyTick={keyTick} openRequest={open} onGoSettings={() => go("settings")} />
         </div>
-        {nav === "projects" && <ProjectsPage />}
+        {nav === "projects" && <ProjectsPage onOpenConversation={(id) => { setOpen({ conversationId: id, nonce: Date.now() }); go("chat"); }} />}
+        {nav === "skills" && <SkillsPage />}
         {nav === "tasks" && <TasksPage />}
         {nav === "history" && <HistoryPage onOpen={(id) => { setOpen({ conversationId: id, nonce: Date.now() }); go("chat"); }} />}
         {nav === "cost" && <CostPage settings={settings} onSettings={setSettings} />}
