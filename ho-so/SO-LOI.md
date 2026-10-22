@@ -18,3 +18,8 @@
 - Chuyện gì xảy ra: với key sai, SDK trả `result` có `subtype: "success"` nhưng `is_error: true` ("Invalid API key"); phần lõi ghi trạng thái Xong.
 - Nguyên nhân: chỉ đọc `subtype`, không đọc `is_error`.
 - Cách tránh từ nay: luôn xét `is_error` của kết quả và trường `error` của tin nhắn assistant (có test).
+
+## 3. App không mở cửa sổ khi tệp dữ liệu tạo từ bản trước thiếu cột mới — 22/10/2026 — Claude-1
+- Chuyện gì xảy ra: thêm cột `session_total_ok` vào bảng conversations; tệp `hub.db` của lần chạy trước không có cột này, câu lệnh lúc khởi động lỗi, cửa sổ không hiện và không báo gì.
+- Nguyên nhân: `CREATE TABLE IF NOT EXISTS` không thêm cột cho bảng đã có; lỗi khởi động không được bắt.
+- Cách tránh từ nay: mọi thay đổi cấu trúc dữ liệu thêm một bước trong `HubDb.migrate()` (đánh số bằng `PRAGMA user_version`, chỉ thêm không xoá) kèm test mở tệp bản cũ; lỗi khởi động hiện hộp thông báo.

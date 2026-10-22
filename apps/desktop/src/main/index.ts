@@ -63,6 +63,15 @@ app.whenReady().then(async () => {
     app.exit(pass ? 0 : 1);
     return;
   }
+  try {
+    await startApp();
+  } catch (err) {
+    dialog.showErrorBox("Trung Kiên AI Hub không khởi động được", `${String(err)}\n\nDữ liệu: ${app.getPath("userData")}`);
+    app.exit(1);
+  }
+});
+
+async function startApp() {
   // Dữ liệu tách khỏi thư mục cài: %APPDATA%\trung-kien-ai-hub
   const dataDir = app.getPath("userData");
   mkdirSync(dataDir, { recursive: true });
@@ -84,6 +93,6 @@ app.whenReady().then(async () => {
   win.webContents.on("will-navigate", (e) => e.preventDefault());
   await win.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
   startUpdater(emit);
-});
+}
 
 app.on("window-all-closed", () => app.quit());

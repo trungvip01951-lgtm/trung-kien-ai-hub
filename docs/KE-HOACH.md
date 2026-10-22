@@ -11,6 +11,8 @@ Yêu cầu gốc: `docs/YEU-CAU-GOC.md` (nguyên văn của anh Trung, không s�
 | Hết tín dụng | Không có tín dụng mua thêm hoặc auto-reload thì API ngừng, không trừ tiền gói | như trên |
 | Agent SDK | Tự nạp Skills, lệnh, CLAUDE.md từ `.claude/` dự án và `~/.claude/`; có hooks, subagents, MCP, permissions, resume/fork phiên, plugins, `enableFileCheckpointing`, `maxBudgetUsd` (ước tính phía máy, có thể vượt nhẹ) | code.claude.com/docs/en/agent-sdk/overview, /typescript |
 | Xác thực | Bắt buộc API key; không dùng đăng nhập claude.ai; không đặt tên/giao diện giống "Claude Code" | agent-sdk/overview |
+| Lọt đăng nhập | Tiến trình agent thừa hưởng biến CLAUDE_*/ANTHROPIC_* sẽ đăng nhập bằng nguồn khác dù `apiKeySource` báo API key; khối `env`/`apiKeyHelper` trong settings cũng vậy | đo 22/10/2026, sổ lỗi mục 1 |
+| Key sai | SDK trả `result` subtype `success` kèm `is_error: true` | đo 22/10/2026 |
 | Đóng gói | SDK chạy kèm tệp `claude.exe` (gói `@anthropic-ai/claude-agent-sdk-win32-x64`); phải giải nén khỏi app.asar | đo trong Mốc 0 |
 | Browser use tool | `browser_toolset_20260801`, GA, chạy phía máy khách; chưa xác minh dùng được trong Agent SDK | platform.claude.com/docs/en/agents-and-tools/tool-use/browser-use-tool |
 
@@ -27,7 +29,7 @@ Yêu cầu gốc: `docs/YEU-CAU-GOC.md` (nguyên văn của anh Trung, không s�
 | Mốc | Nội dung | Tiêu chí (mục XVI yêu cầu gốc) | Trạng thái |
 |---|---|---|---|
 | 0 | Khung Electron + TypeScript, Agent SDK đóng gói được, GitHub Actions build .exe, cài im lặng và kiểm tra khói trên Windows | 1 (trên máy CI) | ĐẠT trên máy CI 22/10/2026; chờ anh cài thử trên máy thật |
-| 1 | API key (DPAPI), chọn dự án, chat streaming qua Agent SDK, hiện bước công cụ, lịch sử SQLite/FTS5, dừng/tiếp tục, token và chi phí, hạn mức công việc/ngày/tháng có chặn cứng | 1–9, 17–20 | chưa làm |
+| 1 | API key (DPAPI), chọn dự án, chat streaming qua Agent SDK, hiện bước công cụ, lịch sử SQLite/FTS5, dừng/tiếp tục, token và chi phí, hạn mức công việc/ngày/tháng có chặn cứng | 1–9, 17–20 | Bản 0.1.0 xong trên cloud (22/10/2026 17:36); chờ anh thử trên máy với API key thật |
 | 2 | Chrome: hồ sơ riêng, quyền theo website, xác nhận thao tác rủi ro | 11–13 | chưa làm |
 | 3 | Kiểm kê và nhập dự án cũ trên máy anh (chỉ đọc), thử tiếp tục 1 việc thật mỗi nhóm | 24–25 | chưa làm |
 | 4 | Windows, Excel/Word/PDF, sao lưu/khôi phục, hàng đợi, lịch | 14–16, 21–23 | chưa làm |

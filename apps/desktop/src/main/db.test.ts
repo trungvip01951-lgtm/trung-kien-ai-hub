@@ -26,6 +26,25 @@ test("lưu, mở lại không mất dữ liệu, tìm kiếm tiếng Việt", ()
   assert.ok(db.integrityOk());
 });
 
+test("mở tệp dữ liệu của bản cũ: tự thêm cột mới, không mất dữ liệu", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const file = path.join(mkdtempSync(path.join(os.tmpdir(), "hubdb-cu-")), "hub.db");
+  const old = new DatabaseSync(file);
+  old.exec(`CREATE TABLE projects (id INTEGER PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
+    CREATE TABLE conversations (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, title TEXT NOT NULL, session_id TEXT,
+      session_total_usd REAL NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+    INSERT INTO projects VALUES (1, 'cu', '/cu', '2026-10-22');
+    INSERT INTO conversations VALUES (1, 1, 'hội thoại cũ', 's1', 0.5, '2026-10-22', '2026-10-22');`);
+  old.close();
+  const db = new HubDb(file);
+  const c = db.getConversation(1)!;
+  assert.equal(c.title, "hội thoại cũ");
+  assert.equal(c.sessionTotalOk, true);
+  assert.equal(db.markInterrupted(), 0);
+  db.close();
+  new HubDb(file).close(); // mở lần hai không chạy lại bước nâng cấp
+});
+
 test("việc đang chạy khi app tắt đột ngột được đánh dấu bị ngắt", () => {
   const db = new HubDb(":memory:");
   const p = db.addProject("a", "/a");

@@ -1,7 +1,7 @@
 {
   "name": "trung-kien-ai-hub",
   "productName": "Trung Kien AI Hub",
-  "version": "0.1.0-dev.1",
+  "version": "0.1.0",
   "description": "Trung Kiên AI Hub - ứng dụng AI Agent cho Windows, chạy bằng Claude API",
   "private": true,
   "repository": "https://github.com/trungvip01951-lgtm/trung-kien-ai-hub",

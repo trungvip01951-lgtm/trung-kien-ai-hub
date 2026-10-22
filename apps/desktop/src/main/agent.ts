@@ -6,6 +6,7 @@ import { allowance, crossedWarning, cycleStart, dayStart, SDK_HEADROOM } from ".
 import type { HubDb } from "./db";
 import { decide, summarizeInput } from "./policy";
 import { estimateCostUsd, type TokenUsage } from "./pricing";
+import { checkSettings, settingsFiles } from "./settings-guard";
 
 export type QueryFn = (args: { prompt: string; options?: Options }) => Query;
 
@@ -34,6 +35,13 @@ export function agentEnv(apiKey: string, appVersion: string): Record<string, str
   return env;
 }
 
+// Chờ anh Trung trả lời hộp xác nhận tối đa 30 phút, quá thì coi như từ chối
+// (phải ngắn hơn timeout của hook để SDK không tự quyết theo luật khác).
+const ASK_TIMEOUT_MS = 30 * 60 * 1000;
+const HOOK_TIMEOUT_S = 3600;
+// Hệ số an toàn khi không chắc tổng chi phí của phiên cũ (sổ lỗi/rà soát 22/10/2026).
+const ESTIMATE_SAFETY = 1.2;
+
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
 const usd4 = (n: number) => `${n.toFixed(4)} USD`;
 
@@ -47,12 +55,14 @@ interface Running {
 
 export class AgentRunner {
   private running: Running | null = null;
+  private testing = false;
   private pending = new Map<string, (allow: boolean) => void>();
   private seq = 0;
 
   constructor(private deps: AgentDeps) {}
 
   runningTaskId(): number | null { return this.running?.taskId ?? null; }
+  private busy(): boolean { return this.running !== null || this.testing; }
 
   usageNow() {
     const now = (this.deps.now ?? (() => new Date()))();
@@ -86,7 +96,8 @@ export class AgentRunner {
   private askUser(taskId: number, toolName: string, input: unknown, signal?: AbortSignal): Promise<boolean> {
     const requestId = `p${++this.seq}`;
     return new Promise((resolve) => {
-      this.pending.set(requestId, resolve);
+      const timer = setTimeout(() => this.answerPermission(requestId, false), ASK_TIMEOUT_MS);
+      this.pending.set(requestId, (allow) => { clearTimeout(timer); resolve(allow); });
       signal?.addEventListener("abort", () => this.answerPermission(requestId, false), { once: true });
       this.deps.emit({ type: "permission-request", requestId, taskId, toolName, summary: summarizeInput(toolName, input) });
     });
@@ -95,12 +106,14 @@ export class AgentRunner {
   // Bắt đầu một việc. Trả về ngay sau khi tạo việc; tiến trình chạy tiếp ở nền.
   async start(input: StartTaskInput): Promise<{ ok: boolean; taskId?: number; conversationId?: number; message?: string; done?: Promise<TaskRow> }> {
     const { db } = this.deps;
-    if (this.running) return { ok: false, message: "Đang có một việc chạy. Mốc 1 chỉ chạy một việc một lúc để không vượt hạn mức." };
+    if (this.busy()) return { ok: false, message: "Đang có một việc chạy. Mốc 1 chỉ chạy một việc một lúc để không vượt hạn mức." };
     const apiKey = this.deps.getApiKey();
     if (!apiKey) return { ok: false, message: "Chưa có API key. Vào Cài đặt để nhập." };
     const project = db.getProject(input.projectId);
     if (!project) return { ok: false, message: "Không tìm thấy dự án." };
     if (!existsSync(project.path)) return { ok: false, message: `Thư mục dự án không còn tồn tại: ${project.path}` };
+    const settingsProblem = checkSettings(settingsFiles(project.path));
+    if (settingsProblem) return { ok: false, message: settingsProblem };
     const prompt = input.prompt.trim();
     if (!prompt) return { ok: false, message: "Chưa nhập yêu cầu." };
 
@@ -121,13 +134,14 @@ export class AgentRunner {
       let decision = d.decision;
       if (decision === "ask") decision = (await this.askUser(taskId, hookInput.tool_name, hookInput.tool_input, signal)) ? "allow" : "deny";
       const reason = decision === "deny" && d.decision === "ask" ? "Anh Trung không cho phép thao tác này." : d.reason;
-      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: decision, permissionDecisionReason: reason } };
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: decision, permissionDecisionReason: reason,
+        ...(decision === "allow" && d.updatedInput ? { updatedInput: d.updatedInput } : {}) } };
     };
     // Lưới an toàn: nếu cấu hình khác vẫn khiến SDK hỏi quyền, cũng hỏi anh Trung.
     const canUseTool: CanUseTool = async (toolName, toolInput, { signal }) => {
       const d = decide(level, toolName, toolInput, project.path);
       if (d.decision === "deny") return { behavior: "deny", message: d.reason };
-      if (d.decision === "allow" || (await this.askUser(taskId, toolName, toolInput, signal))) return { behavior: "allow", updatedInput: toolInput };
+      if (d.decision === "allow" || (await this.askUser(taskId, toolName, toolInput, signal))) return { behavior: "allow", updatedInput: d.updatedInput ?? toolInput };
       return { behavior: "deny", message: "Anh Trung không cho phép thao tác này." };
     };
 
@@ -142,7 +156,7 @@ export class AgentRunner {
       abortController: abort,
       env: agentEnv(apiKey, this.deps.appVersion),
       pathToClaudeCodeExecutable: this.deps.claudePath,
-      hooks: { PreToolUse: [{ hooks: [preToolUse], timeout: 3600 }] },
+      hooks: { PreToolUse: [{ hooks: [preToolUse], timeout: HOOK_TIMEOUT_S }] },
       canUseTool,
       ...(conv.sessionId ? { resume: conv.sessionId } : {}),
     };
@@ -152,12 +166,12 @@ export class AgentRunner {
     this.running = { taskId, query: q, abort, stopRequested: false, budgetHit: false };
     this.deps.emit({ type: "task-started", taskId, conversationId: conv.id, allowanceUsd: u.allowedUsd });
 
-    const done = this.consume(taskId, conv.id, conv.sessionTotalUsd, input.model, u.allowedUsd, project.path, q)
+    const done = this.consume(taskId, conv.id, conv.sessionTotalUsd, conv.sessionTotalOk, input.model, u.allowedUsd, project.path, q)
       .finally(() => { this.running = null; this.denyAllPending(); });
     return { ok: true, taskId, conversationId: conv.id, done };
   }
 
-  private async consume(taskId: number, conversationId: number, prevSessionTotal: number, model: ModelId,
+  private async consume(taskId: number, conversationId: number, prevSessionTotal: number, prevTotalOk: boolean, model: ModelId,
     allowedUsd: number, projectDir: string, q: AsyncIterable<SDKMessage>): Promise<TaskRow> {
     const { db, emit } = this.deps;
     const before = this.usageNow();
@@ -176,6 +190,7 @@ export class AgentRunner {
     let status: TaskStatus = "error";
     let message = "";
     let resultCost: number | null = null;
+    let streamMsg: { id: string; model: string } | null = null;
     try {
       for await (const m of q) {
         if (m.type === "system" && m.subtype === "init") {
@@ -189,6 +204,13 @@ export class AgentRunner {
           emit({ type: "session", taskId, sessionId: m.session_id, model: m.model, skills: m.skills ?? [], tools: m.tools, claudeMd });
         } else if (m.type === "stream_event") {
           const ev = m.event;
+          // Số token cuối của mỗi lượt gọi nằm ở message_delta; tin nhắn assistant có thể mang số tạm.
+          if (ev.type === "message_start") streamMsg = { id: ev.message.id, model: ev.message.model };
+          else if (ev.type === "message_delta" && streamMsg) {
+            const cur = seen.get(streamMsg.id);
+            const out = ev.usage?.output_tokens ?? 0;
+            if (cur && out > cur.u.output) cur.u.output = out;
+          }
           if (m.parent_tool_use_id === null && ev.type === "content_block_delta" && ev.delta.type === "text_delta") {
             emit({ type: "text-delta", taskId, text: ev.delta.text });
           }
@@ -196,8 +218,11 @@ export class AgentRunner {
           const msg = m.message;
           const u = msg.usage;
           if (u) {
+            const prev = seen.get(msg.id);
             seen.set(msg.id, { model: msg.model, u: { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0,
               cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0 } });
+            const now = seen.get(msg.id)!.u;
+            if (prev && prev.u.output > now.output) now.output = prev.u.output;
             const t = totals();
             db.updateTask(taskId, { costUsd: t.cost, costIsEstimate: true, inputTokens: t.input, outputTokens: t.output,
               cacheReadTokens: t.cacheRead, cacheWriteTokens: t.cacheWrite });
@@ -223,11 +248,12 @@ export class AgentRunner {
           }
         } else if (m.type === "result") {
           // total_cost_usd cộng dồn theo cả phiên khi tiếp tục hội thoại cũ: lấy phần chênh.
-          // Không chắc phiên cũ có lưu tổng hay không, nên lấy số lớn hơn giữa phần chênh và ước tính riêng.
+          // Nếu việc trước trong hội thoại không kết thúc bằng result (bị dừng, lỗi, tắt app) thì không chắc
+          // tổng cũ, nên lấy số lớn hơn giữa phần chênh và ước tính riêng nhân hệ số an toàn (đếm dư, không đếm thiếu).
           const total = m.total_cost_usd;
           const delta = total >= prevSessionTotal ? total - prevSessionTotal : total;
-          resultCost = Math.max(delta, totals().cost);
-          db.setSessionTotal(conversationId, total);
+          resultCost = Math.max(delta, totals().cost * (prevTotalOk ? 1 : ESTIMATE_SAFETY));
+          db.setSessionTotal(conversationId, total, true);
           // Lỗi như sai API key vẫn trả subtype "success" nhưng is_error = true.
           const failed = m.subtype === "success" && m.is_error;
           status = m.subtype === "success" ? (failed ? "error" : "done") : m.subtype === "error_max_budget_usd" ? "budget" : "error";
@@ -245,7 +271,8 @@ export class AgentRunner {
     if (r?.budgetHit) { status = "budget"; message = message || "Dừng vì chạm hạn mức việc này."; }
     else if (r?.stopRequested) { status = "stopped"; message = "Đã dừng theo yêu cầu."; }
     const t = totals();
-    const cost = resultCost ?? t.cost;
+    const cost = resultCost ?? t.cost * ESTIMATE_SAFETY;
+    if (resultCost === null) db.markSessionTotalUnsure(conversationId);
     db.updateTask(taskId, { status, costUsd: cost, costIsEstimate: resultCost === null, inputTokens: t.input, outputTokens: t.output,
       cacheReadTokens: t.cacheRead, cacheWriteTokens: t.cacheWrite, stopReason: message, finished: true });
     item(status === "done" ? "system" : "error", message || "Việc kết thúc không có kết quả.");
@@ -264,12 +291,13 @@ export class AgentRunner {
   async testKey(tmpDir: string): Promise<{ ok: boolean; message: string; costUsd: number }> {
     const apiKey = this.deps.getApiKey();
     if (!apiKey) return { ok: false, message: "Chưa có API key.", costUsd: 0 };
-    if (this.running) return { ok: false, message: "Đang có việc chạy, thử lại sau.", costUsd: 0 };
+    if (this.busy()) return { ok: false, message: "Đang có việc chạy, thử lại sau.", costUsd: 0 };
     const u = this.usageNow();
     if (u.blockedReason) return { ok: false, message: u.blockedReason, costUsd: 0 };
     const db = this.deps.db;
     const taskId = db.createTask({ conversationId: null, prompt: "[Kiểm tra API key]", model: "claude-haiku-5-5", effort: "low", permission: "read", allowanceUsd: 0.05 });
     const abort = new AbortController();
+    this.testing = true;
     let source = "";
     let cost = 0;
     let ok = false;
@@ -292,6 +320,8 @@ export class AgentRunner {
       }
     } catch (err) {
       detail = clip(String(err), 300);
+    } finally {
+      this.testing = false;
     }
     db.updateTask(taskId, { status: ok ? "done" : "error", costUsd: cost, costIsEstimate: false, stopReason: detail, finished: true });
     if (source && source !== "ANTHROPIC_API_KEY") return { ok: false, message: `Agent không dùng API key (nguồn: ${source}).`, costUsd: cost };

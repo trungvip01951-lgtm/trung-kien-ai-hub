@@ -106,6 +106,26 @@ test("tiếp tục hội thoại: truyền resume, chỉ tính phần chi phí m
   assert.ok(Math.abs(task.costUsd - 0.15) < 1e-9);
 });
 
+test("việc trước bị dừng không có result: việc sau tính dư, không tính thiếu", async () => {
+  let mode = "stop";
+  const t = setup(async function* (_o, ctl) {
+    yield init();
+    if (mode === "stop") {
+      yield assistant("m1", [{ type: "text", text: "a" }], { input_tokens: 1_000_000, output_tokens: 0 }); // 0,1 USD Haiku
+      return; // kết thúc không có result
+    }
+    yield assistant("m2", [{ type: "text", text: "b" }], { input_tokens: 1_000_000, output_tokens: 0 });
+    yield result(0.05); // tổng phiên báo thấp hơn thực tế
+  });
+  const a = await t.runner.start(input(t.project.id));
+  const ta = await a.done!;
+  assert.ok(Math.abs(ta.costUsd - 0.12) < 1e-9); // ước tính 0,1 x 1,2
+  mode = "go";
+  const b = await t.runner.start(input(t.project.id, a.conversationId!));
+  const tb = await b.done!;
+  assert.ok(tb.costUsd >= 0.12 - 1e-9);
+});
+
 test("lệnh ngoài phải hỏi: anh Trung từ chối thì công cụ bị chặn", async () => {
   let decision: unknown;
   const t = setup(async function* (opts) {

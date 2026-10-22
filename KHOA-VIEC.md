@@ -6,4 +6,4 @@ Trước khi ghi: thêm 1 dòng. Xong hoặc dừng: điền giờ nhả và k�
 |---|---|---|---|---|
 | Claude-1 (Claude Code, phiên web) | Toàn bộ repo: dựng cấu trúc ban đầu | 22/10/2026 16:27 | 22/10/2026 16:29 | Xong, bàn giao ở ho-so/BAN-GIAO.md |
 | Claude-1 (Claude Code, phiên web) | Toàn bộ repo: Mốc 0 (khung Electron, build Windows) | 22/10/2026 16:45 | 22/10/2026 16:52 | Xong Mốc 0, bàn giao ở ho-so/BAN-GIAO.md |
-| Claude-1 (Claude Code, phiên web) | Toàn bộ repo: Mốc 1 + tự cập nhật | 22/10/2026 17:16 | | |
+| Claude-1 (Claude Code, phiên web) | Toàn bộ repo: Mốc 1 + tự cập nhật | 22/10/2026 17:16 | 22/10/2026 17:36 | Xong bản 0.1.0, bàn giao ở ho-so/BAN-GIAO.md |

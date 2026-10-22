@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS projects (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS conversations (
   id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id), title TEXT NOT NULL,
-  session_id TEXT, session_total_usd REAL NOT NULL DEFAULT 0,
+  session_id TEXT, session_total_usd REAL NOT NULL DEFAULT 0, session_total_ok INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS tasks (
   id INTEGER PRIMARY KEY, conversation_id INTEGER REFERENCES conversations(id), prompt TEXT NOT NULL,
@@ -50,12 +50,32 @@ export class HubDb {
     this.db = new DatabaseSync(file);
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
     this.db.exec(SCHEMA);
+    this.migrate();
+  }
+
+  // Nâng cấp cấu trúc cho tệp dữ liệu tạo từ bản cũ (cập nhật app không được làm mất dữ liệu).
+  // Mỗi bước chỉ thêm, không xoá; số bước lưu trong PRAGMA user_version.
+  private migrate() {
+    const cols = (t: string) => (this.db.prepare(`PRAGMA table_info(${t})`).all() as Row[]).map((r) => String(r.name));
+    const steps: (() => void)[] = [
+      () => {
+        if (!cols("conversations").includes("session_total_ok")) {
+          this.db.exec("ALTER TABLE conversations ADD COLUMN session_total_ok INTEGER NOT NULL DEFAULT 1");
+        }
+      },
+    ];
+    const v = Number((this.db.prepare("PRAGMA user_version").get() as Row).user_version);
+    for (let i = v; i < steps.length; i++) {
+      steps[i]();
+      this.db.exec(`PRAGMA user_version = ${i + 1}`);
+    }
   }
 
   close() { this.db.close(); }
 
   // Việc còn "đang chạy" khi mở app nghĩa là lần trước app bị tắt giữa chừng.
   markInterrupted(): number {
+    this.db.exec(`UPDATE conversations SET session_total_ok=0 WHERE id IN (SELECT conversation_id FROM tasks WHERE status='running')`);
     const r = this.db.prepare("UPDATE tasks SET status='interrupted', finished_at=? WHERE status='running'").run(now());
     return Number(r.changes);
   }
@@ -93,10 +113,10 @@ export class HubDb {
     return this.getConversation(Number(r.lastInsertRowid))!;
   }
 
-  getConversation(id: number): (Conversation & { sessionTotalUsd: number }) | null {
+  getConversation(id: number): (Conversation & { sessionTotalUsd: number; sessionTotalOk: boolean }) | null {
     const r = this.db.prepare(`SELECT c.*, (SELECT COALESCE(SUM(cost_usd),0) FROM tasks WHERE conversation_id=c.id) AS cost
       FROM conversations c WHERE id=?`).get(id) as Row | undefined;
-    return r ? { ...toConversation(r), sessionTotalUsd: Number(r.session_total_usd) } : null;
+    return r ? { ...toConversation(r), sessionTotalUsd: Number(r.session_total_usd), sessionTotalOk: Number(r.session_total_ok) === 1 } : null;
   }
 
   listConversations(projectId: number): Conversation[] {
@@ -108,8 +128,13 @@ export class HubDb {
     this.db.prepare("UPDATE conversations SET session_id=?, updated_at=? WHERE id=?").run(sessionId, now(), conversationId);
   }
 
-  setSessionTotal(conversationId: number, totalUsd: number) {
-    this.db.prepare("UPDATE conversations SET session_total_usd=?, updated_at=? WHERE id=?").run(totalUsd, now(), conversationId);
+  setSessionTotal(conversationId: number, totalUsd: number, ok: boolean) {
+    this.db.prepare("UPDATE conversations SET session_total_usd=?, session_total_ok=?, updated_at=? WHERE id=?").run(totalUsd, ok ? 1 : 0, now(), conversationId);
+  }
+
+  // Việc kết thúc không có result: tổng chi phí phiên cũ không còn tin được.
+  markSessionTotalUnsure(conversationId: number) {
+    this.db.prepare("UPDATE conversations SET session_total_ok=0 WHERE id=?").run(conversationId);
   }
 
   createTask(t: { conversationId: number | null; prompt: string; model: string; effort: string; permission: string; allowanceUsd: number }): number {
@@ -145,7 +170,8 @@ export class HubDb {
     return (this.db.prepare("SELECT * FROM tasks ORDER BY id DESC LIMIT ?").all(limit) as Row[]).map(toTask);
   }
 
-  // Tổng chi phí (kể cả việc đang chạy) từ thời điểm `since`.
+  // Tổng chi phí (kể cả việc đang chạy) từ thời điểm `since`. Tính theo giờ bắt đầu việc:
+  // việc bắt đầu trước 0h mà tiêu tiền sau 0h vẫn tính vào ngày cũ (mỗi việc tối đa bằng hạn mức một việc).
   spentSince(since: Date): number {
     const r = this.db.prepare("SELECT COALESCE(SUM(cost_usd),0) AS s FROM tasks WHERE created_at >= ?").get(since.toISOString()) as Row;
     return Number(r.s);
