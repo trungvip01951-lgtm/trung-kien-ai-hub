@@ -30,3 +30,6 @@ Mục mới nối xuống cuối. Mỗi mục: `## dd/mm/yyyy hh:mm — <tên AI
 - Chuyển key: lỗi `billing_error`, `authentication_failed`, `account_on_hold`, `verification_required`, `rate_limit` hoặc kết quả báo hết tín dụng/sai key. Chưa gọi công cụ nào thì tự chạy lại việc bằng key kế tiếp; đã gọi công cụ thì dừng, báo gõ "tiếp tục". Key vừa lỗi xếp cuối 30 phút. Hạn mức tính chung, phần đã tiêu của lần thử trước trừ vào hạn mức lần sau.
 - Giao diện Cài đặt: bảng key (tên, 4 ký tự cuối, dùng/lỗi gần nhất), nút ↑↓, Kiểm tra từng key, Xoá; dòng phiên trong Chat ghi key đang dùng. Bỏ `keystore.ts`, đổi hợp đồng IPC (listApiKeys/addApiKey/removeApiKey/moveApiKey/testApiKey(id)).
 - Kiểm: 31/31 test (thêm 7); SDK thật với 2 key giả: thử lần lượt cả 2, báo "Đã thử hết 2 key", chi phí 0; giao diện kiểm bằng Chromium với lõi giả (thêm 2 key, đổi thứ tự, 0 lỗi). Chưa kiểm lưu key thật trên cloud (Linux không có kho khoá; Windows dùng DPAPI).
+
+## 22/10/2026 20:11 — Claude-1
+- Ghi chú bản phát hành (CI) thêm dòng hướng dẫn tải ở đầu, vì anh Trung không biết bấm tệp nào trên trang Releases.
