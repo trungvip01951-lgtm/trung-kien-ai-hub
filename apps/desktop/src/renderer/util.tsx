@@ -10,6 +10,7 @@ export const EFFORTS: { id: Effort; label: string }[] = [
 export const PERMISSIONS: { id: PermissionLevel; label: string }[] = [
   { id: "read", label: "Chỉ đọc" },
   { id: "write", label: "Được sửa file trong dự án" },
+  { id: "full", label: "Đủ quyền (không hỏi)" },
 ];
 
 export const STATUS_LABEL: Record<TaskStatus, string> = {

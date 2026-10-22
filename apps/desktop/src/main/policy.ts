@@ -50,6 +50,11 @@ function fileArg(input: unknown): string | null {
 export function decide(level: PermissionLevel, toolName: string, input: unknown, projectDir: string, extraReadDirs: string[] = []): Decision {
   const i = (input ?? {}) as Record<string, unknown>;
   if (SAFE.has(toolName)) return { decision: "allow", reason: "Công cụ điều phối" };
+  if (level === "full") {
+    // Đủ quyền: không hỏi; AI phụ vẫn ép chạy chờ để không tiêu tiền sau khi việc kết thúc.
+    const updatedInput = SUBAGENT.has(toolName) && i.run_in_background ? { ...i, run_in_background: false } : undefined;
+    return { decision: "allow", reason: "Đủ quyền", updatedInput };
+  }
 
   if (FILE_READ.has(toolName)) {
     const p = fileArg(input);

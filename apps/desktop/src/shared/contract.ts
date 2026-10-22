@@ -3,8 +3,9 @@
 
 export type ModelId = "claude-haiku-5-5" | "claude-sonnet-5-5" | "claude-opus-5-5";
 export type Effort = "low" | "medium" | "high" | "xhigh";
-// read: chỉ đọc; write: được sửa file trong thư mục dự án, lệnh và công cụ ngoài phải hỏi.
-export type PermissionLevel = "read" | "write";
+// read: chỉ đọc; write: được sửa file trong thư mục dự án, lệnh và công cụ ngoài phải hỏi;
+// full: đủ quyền, không hỏi gì (vẫn giữ hạn mức chi phí và các chặn bắt buộc: cookie/mã truy cập trình duyệt).
+export type PermissionLevel = "read" | "write" | "full";
 
 export const MODELS: { id: ModelId; label: string }[] = [
   { id: "claude-haiku-5-5", label: "Haiku 5.5 (rẻ, việc đơn giản)" },
@@ -86,8 +87,19 @@ export interface UsageSummary {
 export type SiteMode = "read" | "ask" | "auto";
 export interface ChromeSettings {
   enabled: boolean;
+  // app: hồ sơ trình duyệt riêng của app; main: Chrome/Edge anh đang dùng (qua tiện ích Playwright Extension).
+  mode: "app" | "main";
   browser: "chrome" | "msedge";        // trình duyệt đã cài trên máy; hồ sơ riêng của app
   sites: { host: string; mode: SiteMode }[];
+}
+
+// Kết nối dịch vụ ngoài qua máy chủ MCP từ xa (đăng nhập OAuth trong app).
+export type ConnectionKind = "windsor" | "gmail" | "drive" | "sheets" | "custom";
+export interface ConnectionInfo {
+  id: string; kind: ConnectionKind; name: string; url: string; enabled: boolean; toolPrefix: string;
+  status: "connected" | "needs-login"; lastError: string | null; connectedAt: string | null;
+  expiresAt: string | null; canRefresh: boolean;
+  needsClientId: boolean; hasClientId: boolean;   // Google: cần OAuth client anh tạo trong Google Cloud
 }
 
 export interface Settings {
@@ -151,6 +163,18 @@ export interface HubApi {
   removeSkill(name: string): Promise<void>;
   restoreSkill(name: string, stamp: string): Promise<{ ok: boolean; message: string }>;
 
+  listConnections(): Promise<ConnectionInfo[]>;
+  addConnection(kind: ConnectionKind, name?: string, url?: string): Promise<{ ok: boolean; message: string }>;
+  removeConnection(id: string): Promise<void>;
+  setConnectionEnabled(id: string, enabled: boolean): Promise<void>;
+  setConnectionClient(id: string, clientId: string, clientSecret: string): Promise<{ ok: boolean; message: string }>;
+  loginConnection(id: string): Promise<{ ok: boolean; message: string }>;   // mở trình duyệt mặc định để đăng nhập
+  logoutConnection(id: string): Promise<void>;
+  // Mã ghép nối tiện ích Playwright Extension (để khỏi phải bấm đồng ý mỗi lần); lưu mã hoá.
+  setExtensionToken(token: string): Promise<void>;
+  hasExtensionToken(): Promise<boolean>;
+  runningTasks(): Promise<{ taskId: number; conversationId: number }[]>;
+
   // Mở trình duyệt với hồ sơ riêng của app để anh Trung tự đăng nhập các website (app không xem mật khẩu).
   openBrowserProfile(): Promise<{ ok: boolean; message: string }>;
   listConversations(projectId: number): Promise<Conversation[]>;
@@ -159,7 +183,7 @@ export interface HubApi {
 
   startTask(input: StartTaskInput): Promise<{ ok: boolean; taskId?: number; conversationId?: number; message?: string }>;
   stopTask(taskId: number): Promise<void>;
-  answerPermission(requestId: string, allow: boolean): Promise<void>;
+  answerPermission(requestId: string, allow: boolean, always?: boolean): Promise<void>;   // always: "Đồng ý luôn" trong hội thoại này
   runningTaskId(): Promise<number | null>;
 
   checkUpdate(): Promise<void>;     // kiểm tra ngay; có bản mới thì tự tải, xong phát sự kiện "ready"

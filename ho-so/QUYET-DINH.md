@@ -62,3 +62,23 @@ Cách làm: tự chia việc cho 3 AI phụ (Haiku 5.5 việc cơ học; Sonnet 
 > k cần đâu tự đăng nhập tk web vào chome có sẵn cũng đc. e làm song chưa khi nào song thì bảo a cập nhật nhé, còn làm cứ làm k cần báo cáo nhiều đâu
 
 Nghĩa: giữ trình duyệt hồ sơ riêng của app (anh tự đăng nhập các website vào đó), không làm chế độ điều khiển Chrome chính. Báo ngắn, chỉ báo khi xong để anh cập nhật.
+
+## 22/10/2026 ~22:00 — phiên Claude Code (web)
+> phải thêm được hội thoại mới khi đang có hội thoại đang làm việc. có chế độ full quyền đầy đủ hết tất cả quyền và đc kết nối với windsod, gg trang tính, gg driver. gmail nữa
+
+## 22/10/2026 ~22:05 — phiên Claude Code (web), nhắn giữa chừng
+> chức năng đồng ý cấp quyền mọi xin phép phải có nhé em
+
+Cách hiểu đã làm: (1) chạy nhiều hội thoại cùng lúc; (2) mức quyền "Đủ quyền" không hỏi gì (vẫn giữ hạn mức chi phí và các chặn bắt buộc của yêu cầu gốc: không lấy cookie/token trình duyệt); (3) kết nối Windsor.ai, Google Sheets, Drive, Gmail qua máy chủ MCP chính thức, đăng nhập OAuth trong app trên máy anh (mở giới hạn "chưa kết nối dữ liệu thật" cho 4 dịch vụ này, chỉ trong app, không trên cloud); (4) hộp xin phép có nút "Đồng ý luôn" (không hỏi lại cùng loại trong hội thoại đó) bên cạnh Cho phép/Từ chối.
+
+## 22/10/2026 ~22:15 — phiên Claude Code (web), nhắn giữa chừng (thay quyết định ~21:45 "k cần đâu")
+> thêm chức năng điều khiển đc pugin claude cài ở chome để điều khiển chome có sẵn ở máy a nhé
+
+Đã kiểm: tệp chạy Claude Code đi kèm Agent SDK báo "Claude in Chrome needs a claude.ai account sign-in, and this session uses an API key"; app bắt buộc dùng API key, nên không dùng được tiện ích Claude. Cách làm: chế độ "Chrome chính của anh" qua tiện ích chính thức Playwright Extension (Playwright MCP `--extension`), dùng Chrome đang mở và các tài khoản đã đăng nhập; vẫn giữ chế độ hồ sơ riêng.
+
+## 22/10/2026 ~22:25 — phiên Claude Code (web), nhắn giữa chừng
+> trong chỗ chat ấn enter là gửi còn shift+enter mới là xuống dòng nhé em
+
+> và làm hết các mốc còn lại cho a nhé song báo a cập nhật
+
+Nghĩa: làm tiếp Mốc 4 và Mốc 5 không chờ duyệt giữa các mốc (thay quyết định "xong mốc anh dùng thử rồi mới sang mốc sau"); xong thì báo anh cập nhật.

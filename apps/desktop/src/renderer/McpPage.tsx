@@ -1,0 +1,124 @@
+import { useCallback, useEffect, useState } from "react";
+import type { ConnectionInfo, ConnectionKind } from "../shared/contract";
+import { fmtDate } from "./util";
+
+const PRESETS: { kind: Exclude<ConnectionKind, "custom">; label: string }[] = [
+  { kind: "windsor", label: "Windsor.ai" },
+  { kind: "sheets", label: "Google Trang tính" },
+  { kind: "drive", label: "Google Drive" },
+  { kind: "gmail", label: "Gmail" },
+];
+
+export function McpPage() {
+  const [list, setList] = useState<ConnectionInfo[]>([]);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [client, setClient] = useState<{ id: string; cid: string; sec: string } | null>(null);
+  const [custom, setCustom] = useState({ name: "", url: "" });
+  const load = useCallback(() => { window.hub.listConnections().then(setList).catch((e) => setMsg({ ok: false, text: String(e) })); }, []);
+  useEffect(load, [load]);
+  const act = async (id: string | null, fn: () => Promise<{ ok: boolean; message: string } | void>) => {
+    setBusy(id); setMsg(null);
+    try { const r = await fn(); if (r) setMsg({ ok: r.ok, text: r.message }); } catch (e) { setMsg({ ok: false, text: String(e) }); }
+    setBusy(null); load();
+  };
+  const has = (k: ConnectionKind) => list.some((c) => c.kind === k);
+  const googleMissing = list.some((c) => c.needsClientId && !c.hasClientId);
+
+  return (
+    <div className="page">
+      <h1>MCP và công cụ</h1>
+      <div className="note small">
+        Kết nối dịch vụ để agent đọc và làm việc với dữ liệu của anh, qua máy chủ MCP chính thức của từng dịch vụ.
+        Anh đăng nhập ngay trong trình duyệt; app chỉ giữ mã truy cập (mã hoá trên máy), không xem mật khẩu.
+        Công cụ <b>đọc</b> (get, list, search…) agent tự dùng; công cụ <b>gửi/sửa</b> (gửi thư, ghi bảng tính, chạy hành động quảng cáo…) phải hỏi anh,
+        trừ khi việc chạy ở chế độ "Đủ quyền". Kết nối mới có hiệu lực từ việc kế tiếp.
+      </div>
+      {msg && <div className={`alert ${msg.ok ? "info" : "danger"}`}>{msg.text}</div>}
+
+      <div className="row">
+        {PRESETS.map((p) => (
+          <button key={p.kind} disabled={has(p.kind)} onClick={() => void act(null, () => window.hub.addConnection(p.kind))}>+ {p.label}</button>
+        ))}
+      </div>
+
+      {list.length === 0 ? <div className="card muted">Chưa có kết nối. Bấm một nút ở trên để thêm.</div> : (
+        <table className="table">
+          <thead><tr><th>Dịch vụ</th><th>Trạng thái</th><th>Tên công cụ</th><th></th></tr></thead>
+          <tbody>
+            {list.map((c) => (
+              <tr key={c.id}>
+                <td><b>{c.name}</b><div className="mono small muted wrap">{c.url}</div></td>
+                <td>
+                  <span className={`badge ${c.status === "connected" ? "done" : "warn"}`}>{c.status === "connected" ? "Đã kết nối" : "Chưa đăng nhập"}</span>
+                  {!c.enabled && <span className="badge">Đang tắt</span>}
+                  {c.connectedAt && <div className="small muted">Đăng nhập {fmtDate(c.connectedAt)}{c.canRefresh ? " · tự làm mới" : ""}</div>}
+                  {c.needsClientId && !c.hasClientId && <div className="small">Cần OAuth Client ID</div>}
+                  {c.lastError && <div className="small danger-text">{c.lastError}</div>}
+                </td>
+                <td className="mono small">{c.toolPrefix}…</td>
+                <td>
+                  <div className="row">
+                    {c.needsClientId && <button onClick={() => setClient({ id: c.id, cid: "", sec: "" })}>{c.hasClientId ? "Đổi Client ID" : "Nhập Client ID"}</button>}
+                    <button className="primary" disabled={busy === c.id} onClick={() => void act(c.id, () => window.hub.loginConnection(c.id))}>
+                      {busy === c.id ? "Đang chờ đăng nhập…" : c.status === "connected" ? "Đăng nhập lại" : "Đăng nhập"}
+                    </button>
+                    <button onClick={() => void act(null, () => window.hub.setConnectionEnabled(c.id, !c.enabled))}>{c.enabled ? "Tắt" : "Bật"}</button>
+                    {c.status === "connected" && <button onClick={() => void act(null, () => window.hub.logoutConnection(c.id))}>Đăng xuất</button>}
+                    <button onClick={() => { if (confirm(`Xoá kết nối ${c.name}?`)) void act(null, () => window.hub.removeConnection(c.id)); }}>Xoá</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {(googleMissing || list.some((c) => c.needsClientId)) && (
+        <>
+          <h2>Kết nối Google (Gmail, Drive, Trang tính): làm 1 lần</h2>
+          <div className="card small">
+            Google chưa cho app tự đăng ký, nên anh tạo một "OAuth client" trong Google Cloud (miễn phí). Máy chủ MCP của Google đang ở giai đoạn
+            xem trước cho nhà phát triển: tài khoản cần được Google cho dùng; nếu đăng nhập báo 403 là tài khoản chưa được mở.
+            <ol>
+              <li>Vào <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noreferrer">console.cloud.google.com</a>, tạo dự án (ví dụ "Trung Kien AI Hub").</li>
+              <li>Mục "APIs &amp; Services → Library": bật <b>Gmail API</b>, <b>Google Drive API</b>, <b>Google Sheets API</b> và các dịch vụ MCP tương ứng
+                (<span className="mono">gmailmcp.googleapis.com</span>, <span className="mono">drivemcp.googleapis.com</span>, <span className="mono">sheetsmcp.googleapis.com</span>).</li>
+              <li>Mục "Google Auth Platform": cấu hình màn hình đồng ý (loại External, thêm email của anh vào Test users).</li>
+              <li>Mục "Clients → Create client": chọn loại <b>Desktop app</b>. Chép Client ID và Client secret.</li>
+              <li>Quay lại đây, bấm "Nhập Client ID" ở một dòng Google (dùng chung cho cả 3), rồi bấm Đăng nhập từng dòng.</li>
+            </ol>
+          </div>
+        </>
+      )}
+
+      <h2>Máy chủ MCP khác</h2>
+      <div className="row">
+        <input placeholder="Tên (ví dụ: Search Console)" value={custom.name} onChange={(e) => setCustom({ ...custom, name: e.target.value })} />
+        <input className="grow" placeholder="https://…/mcp" value={custom.url} onChange={(e) => setCustom({ ...custom, url: e.target.value })} />
+        <button disabled={!custom.name.trim() || !custom.url.trim()} onClick={() => void act(null, async () => {
+          const r = await window.hub.addConnection("custom", custom.name, custom.url);
+          if (r.ok) setCustom({ name: "", url: "" });
+          return r;
+        })}>Thêm</button>
+      </div>
+
+      {client && (
+        <div className="overlay">
+          <div className="dialog">
+            <h3>OAuth client của Google</h3>
+            <div className="col">
+              <input placeholder="Client ID (…apps.googleusercontent.com)" value={client.cid} onChange={(e) => setClient({ ...client, cid: e.target.value })} />
+              <input placeholder="Client secret" type="password" value={client.sec} onChange={(e) => setClient({ ...client, sec: e.target.value })} />
+              <div className="small muted">Lưu mã hoá trên máy, dùng chung cho Gmail, Drive, Trang tính.</div>
+            </div>
+            <div className="row end">
+              <button onClick={() => setClient(null)}>Huỷ</button>
+              <button className="primary" onClick={() => { const c = client; setClient(null); void act(null, () => window.hub.setConnectionClient(c.id, c.cid, c.sec)); }}>Lưu</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

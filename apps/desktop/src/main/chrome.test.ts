@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { ChromeSettings } from "../shared/contract";
 import { chromeServerConfig, decideBrowser, newBrowserState, pageUrlFrom, siteMode, updateBrowserState, type BrowserState } from "./chrome";
 
-const s: ChromeSettings = { enabled: true, browser: "chrome", sites: [
+const s: ChromeSettings = { enabled: true, mode: "app", browser: "chrome", sites: [
   { host: "mau-a.vn", mode: "auto" }, { host: "doc.mau-a.vn", mode: "read" }, { host: "hoi.vn", mode: "ask" },
 ] };
 const t = (n: string) => `mcp__chrome__${n}`;

@@ -12,16 +12,26 @@ import type { Decision } from "./policy";
 export const CHROME_SERVER = "chrome";
 const PREFIX = `mcp__${CHROME_SERVER}__`;
 
-export interface ChromePaths { nodeBinary: string; cliPath: string; profileDir: string; outputDir: string; executablePath?: string }
+export interface ChromePaths {
+  nodeBinary: string; cliPath: string; profileDir: string; outputDir: string; executablePath?: string;
+  extensionToken?: () => string | null;   // mã ghép nối tiện ích Playwright Extension (chế độ Chrome chính)
+}
 
 // Lệnh chạy máy chủ MCP: dùng chính tệp chạy của Electron ở chế độ Node (ELECTRON_RUN_AS_NODE),
 // nên máy anh không cần cài Node riêng.
 export function chromeServerConfig(s: ChromeSettings, p: ChromePaths): McpStdioServerConfig {
   // --no-webmcp: không nạp công cụ do chính trang web đăng ký (trang lạ có thể tự tạo công cụ đổi dữ liệu).
+  const env: Record<string, string> = { ELECTRON_RUN_AS_NODE: "1" };
+  if (s.mode === "main") {
+    // Chrome anh đang dùng: nối qua tiện ích Playwright Extension, dùng các tài khoản đã đăng nhập sẵn.
+    const token = p.extensionToken?.();
+    if (token) env.PLAYWRIGHT_MCP_EXTENSION_TOKEN = token;
+    return { type: "stdio", command: p.nodeBinary, args: [p.cliPath, "--extension", "--browser", s.browser, "--output-dir", p.outputDir, "--image-responses", "allow", "--no-webmcp"], env };
+  }
   const args = [p.cliPath, "--user-data-dir", p.profileDir, "--output-dir", p.outputDir, "--image-responses", "allow", "--no-webmcp"];
   if (p.executablePath) args.push("--executable-path", p.executablePath);
   else args.push("--browser", s.browser);
-  return { type: "stdio", command: p.nodeBinary, args, env: { ELECTRON_RUN_AS_NODE: "1" } };
+  return { type: "stdio", command: p.nodeBinary, args, env };
 }
 
 export const CHROME_GUIDE = [
@@ -122,14 +132,15 @@ export function updateBrowserState(st: BrowserState, toolName: string, response:
 }
 
 // Quyết định cho công cụ trình duyệt theo trang đang mở (st).
-// readOnly: việc chạy ở chế độ "Chỉ đọc" thì chỉ được xem trang, không thao tác.
-export function decideBrowser(s: ChromeSettings, toolName: string, input: unknown, st: BrowserState, readOnly = false): Decision {
+// readOnly: việc chạy ở chế độ "Chỉ đọc" thì chỉ được xem trang, không thao tác. full: việc "Đủ quyền", chỉ giữ các chặn bắt buộc.
+export function decideBrowser(s: ChromeSettings, toolName: string, input: unknown, st: BrowserState, readOnly = false, full = false): Decision {
   const currentUrl = st.url;
   const t = toolName.slice(PREFIX.length);
   const i = (input ?? {}) as Record<string, unknown>;
   // Tên tệp tự đặt được tính từ thư mục dự án (ghi đè được tệp dự án): không cho, để app tự lưu vào thư mục của app.
   if (i.filename !== undefined) return { decision: "deny", reason: "Không đặt tên tệp; ảnh và snapshot tự lưu vào thư mục của app." };
   if (BLOCKED.test(t)) return { decision: "deny", reason: "Không cho đọc/sửa cookie, bộ nhớ trang, mạng hoặc chạy mã Playwright tuỳ ý." };
+  if (full) return { decision: "allow", reason: "Đủ quyền" };
   if (t === "browser_evaluate") {
     return readOnly ? { decision: "deny", reason: "Chế độ Chỉ đọc: không chạy mã trên trang." } : { decision: "ask", reason: "Chạy mã JavaScript trên trang (có thể đọc dữ liệu trang)" };
   }

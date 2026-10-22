@@ -308,7 +308,7 @@ test("trình duyệt: bật thì nạp máy chủ MCP và áp quyền theo websi
     yield result(0.001);
   };
   const t = setup(script, "sk-ant-api03-gia", [], undefined, paths);
-  t.db.saveSettings({ ...t.db.getSettings(), chrome: { enabled: true, browser: "msedge", sites: [{ host: "mau-a.vn", mode: "auto" }] } });
+  t.db.saveSettings({ ...t.db.getSettings(), chrome: { enabled: true, mode: "app", browser: "msedge", sites: [{ host: "mau-a.vn", mode: "auto" }] } });
   await (await t.runner.start(input(t.project.id))).done;
   const srv = t.calls[0].mcpServers!.chrome as { command: string; args: string[] };
   assert.equal(srv.command, "/app/app");
@@ -318,8 +318,68 @@ test("trình duyệt: bật thì nạp máy chủ MCP và áp quyền theo websi
 
   decisions.length = 0;
   const t2 = setup(script, "sk-ant-api03-gia", [], undefined, paths);
-  t2.db.saveSettings({ ...t2.db.getSettings(), chrome: { enabled: false, browser: "chrome", sites: [] } });
+  t2.db.saveSettings({ ...t2.db.getSettings(), chrome: { enabled: false, mode: "app", browser: "chrome", sites: [] } });
   await (await t2.runner.start(input(t2.project.id))).done;
   assert.equal(t2.calls[0].mcpServers, undefined);
   assert.deepEqual(decisions, ["browser_navigate:deny", "browser_type:deny", "browser_cookie_list:deny"]);
+});
+
+test("nhiều hội thoại cùng lúc: chạy song song, giữ trước hạn mức, cùng hội thoại thì chặn, trình duyệt chỉ một việc", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const paths = { nodeBinary: "/app/app", cliPath: "/app/cli.js", profileDir: "/d/p", outputDir: "/d/o" };
+  const t = setup(async function* () { yield init(); await gate; yield result(0.01); }, "sk-ant-api03-gia", [], undefined, paths);
+  t.db.saveSettings({ ...t.db.getSettings(), limits: { ...t.db.getSettings().limits, perTaskUsd: 4, dailyUsd: 10 } });
+  const a = await t.runner.start(input(t.project.id));
+  assert.ok(a.ok);
+  const again = await t.runner.start(input(t.project.id, a.conversationId!));
+  assert.equal(again.ok, false);
+  assert.match(again.message!, /đang chạy/);
+  // Việc 1 giữ trước 4 USD: việc 2 còn được tối đa min(4, 10 - 4) = 4; việc 3 còn 2.
+  const b = await t.runner.start(input(t.project.id));
+  assert.ok(b.ok);
+  assert.equal(t.db.getTask(b.taskId!)!.costUsd >= 0, true);
+  const c = await t.runner.start(input(t.project.id));
+  assert.ok(c.ok);
+  assert.equal(t.runner.usageNow().reservedUsd.toFixed(2), "10.00");
+  const d = await t.runner.start(input(t.project.id));
+  assert.equal(d.ok, false);                                   // tối đa 3 việc
+  assert.equal(t.runner.runningTasks().length, 3);
+  assert.ok(t.calls[0].mcpServers?.chrome);                     // việc đầu có trình duyệt
+  assert.equal(t.calls[1].mcpServers, undefined);               // việc sau không
+  release();
+  await Promise.all([a.done, b.done, c.done]);
+  assert.equal(t.runner.runningTasks().length, 0);
+  assert.equal(t.runner.usageNow().reservedUsd, 0);
+});
+
+test("Đồng ý luôn: không hỏi lại cùng loại trong hội thoại; Đủ quyền: không hỏi", async () => {
+  const asked: string[] = [];
+  const results: string[] = [];
+  const script: Script = async function* (opts) {
+    yield init();
+    const pre = opts.hooks!.PreToolUse![0].hooks[0];
+    for (const cmd of ["npm test", "npm run build"]) {
+      const r = await pre({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: cmd } } as never, undefined, { signal: new AbortController().signal });
+      results.push((r as { hookSpecificOutput: { permissionDecision: string } }).hookSpecificOutput.permissionDecision);
+    }
+    yield result(0.001);
+  };
+  const t = setup(script);
+  const orig = t.runner.answerPermission.bind(t.runner);
+  const r = await t.runner.start(input(t.project.id));
+  // Trả lời câu hỏi đầu bằng "Đồng ý luôn".
+  await new Promise((res) => setImmediate(res));
+  const req = t.events.find((e) => e.type === "permission-request") as Extract<HubEvent, { type: "permission-request" }>;
+  asked.push(req.summary);
+  orig(req.requestId, true, true);
+  await r.done;
+  assert.deepEqual(results, ["allow", "allow"]);
+  assert.equal(t.events.filter((e) => e.type === "permission-request").length, 1);
+
+  results.length = 0;
+  const t2 = setup(script);
+  await (await t2.runner.start({ ...input(t2.project.id), permission: "full" })).done;
+  assert.deepEqual(results, ["allow", "allow"]);
+  assert.equal(t2.events.filter((e) => e.type === "permission-request").length, 0);
 });

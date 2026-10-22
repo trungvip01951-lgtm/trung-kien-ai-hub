@@ -11,7 +11,7 @@ type Entry =
   | { key: string; kind: "pending-user"; text: string }
   | { key: string; kind: "note"; text: string; tone?: "danger" | "info" };
 
-interface PermReq { requestId: string; toolName: string; summary: string }
+interface PermReq { requestId: string; taskId: number; toolName: string; summary: string }
 interface Warn { percent: number; message: string }
 interface Usage { inputTokens: number; outputTokens: number; costUsd: number }
 
@@ -48,18 +48,27 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
   const [permission, setPermission] = useState<PermissionLevel>("read");
   const [prompt, setPrompt] = useState("");
   const [hasKey, setHasKey] = useState(true);
-  const [taskId, setTaskId] = useState<number | null>(null);
+  // Nhiều hội thoại chạy cùng lúc: hội thoại → việc đang chạy.
+  const [runningByConv, setRunningByConv] = useState<Map<number, number>>(new Map());
   const [error, setError] = useState("");
   const [warn, setWarn] = useState<Warn | null>(null);
   const [perms, setPerms] = useState<PermReq[]>([]);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [usageEst, setUsageEst] = useState(true);
-  const taskRef = useRef<number | null>(null);
+  const taskConv = useRef(new Map<number, number>());     // việc → hội thoại
+  const convRef = useRef<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const projectRef = useRef<number | null>(null);
   projectRef.current = projectId;
+  convRef.current = convId;
 
-  const setTask = (id: number | null) => { taskRef.current = id; setTaskId(id); };
+  const markRunning = (taskId: number, conversationId: number, on: boolean) => {
+    if (on) taskConv.current.set(taskId, conversationId);
+    setRunningByConv((m) => { const n = new Map(m); if (on) n.set(conversationId, taskId); else if (n.get(conversationId) === taskId) n.delete(conversationId); return n; });
+  };
+  // Sự kiện của việc thuộc hội thoại đang mở trên màn hình.
+  const isShown = (taskId: number) => taskConv.current.get(taskId) === convRef.current && convRef.current != null;
+  const taskId = convId != null ? runningByConv.get(convId) ?? null : null;
   const running = taskId !== null;
 
   const loadProjects = useCallback(async () => {
@@ -81,12 +90,7 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
     setModel(settings.defaultModel); setEffort(settings.defaultEffort); setPermission(settings.defaultPermission);
   }, [settings]);
   useEffect(() => {
-    window.hub.runningTaskId().then((id) => {
-      if (id != null && taskRef.current == null) {
-        setTask(id);
-        setEntries((es) => [...es, { key: nextKey(), kind: "note", text: `Đang có việc #${id} chạy.`, tone: "info" }]);
-      }
-    }).catch(() => {});
+    window.hub.runningTasks().then((list) => { for (const t of list) markRunning(t.taskId, t.conversationId, true); }).catch(() => {});
   }, []);
   useEffect(() => { bottomRef.current?.scrollIntoView({ block: "end" }); }, [entries]);
 
@@ -125,20 +129,19 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
     const off = window.hub.onEvent((e: HubEvent) => {
       switch (e.type) {
         case "task-started":
-          setTask(e.taskId);
-          setConvId(e.conversationId);
+          markRunning(e.taskId, e.conversationId, true);
           loadConvs(projectRef.current).catch(() => {});
           break;
         case "budget-warning":
           setWarn({ percent: e.percent, message: e.message });
           break;
         case "permission-request":
-          setPerms((q) => [...q, { requestId: e.requestId, toolName: e.toolName, summary: e.summary }]);
+          setPerms((q) => [...q, { requestId: e.requestId, taskId: e.taskId, toolName: e.toolName, summary: e.summary }]);
           break;
         case "update":
           break;
         case "text-delta": {
-          if (e.taskId !== taskRef.current) break;
+          if (!isShown(e.taskId)) break;
           setEntries((es) => {
             const last = es[es.length - 1];
             if (last && last.kind === "draft" && last.taskId === e.taskId) {
@@ -150,7 +153,7 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
         }
         case "item": {
           const it = e.item;
-          if (it.taskId !== taskRef.current) break;
+          if (!isShown(it.taskId)) break;
           setEntries((es) => {
             if (es.some((x) => x.kind === "item" && x.item.id === it.id)) return es;
             let rest = es;
@@ -161,26 +164,30 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
           break;
         }
         case "session":
-          if (e.taskId !== taskRef.current) break;
+          if (!isShown(e.taskId)) break;
           setEntries((es) => [...es, {
             key: nextKey(), kind: "note", tone: "info",
             text: `${e.keyLabel} · Model ${e.model} · đã nạp ${e.skills.length} skills · CLAUDE.md: ${e.claudeMd ? "có" : "không"}`,
           }]);
           break;
         case "usage":
-          if (e.taskId !== taskRef.current) break;
+          if (!isShown(e.taskId)) break;
           setUsage({ inputTokens: e.inputTokens, outputTokens: e.outputTokens, costUsd: e.costUsd });
           setUsageEst(e.costIsEstimate);
           break;
-        case "task-finished":
-          setEntries((es) => [
-            ...es.filter((x) => x.kind !== "pending-user" && x.kind !== "draft"),
-            { key: nextKey(), kind: "note", text: e.message, tone: e.task.status === "done" ? "info" : "danger" },
-          ]);
-          setTask(null);
-          setPerms([]);
+        case "task-finished": {
+          const conv = taskConv.current.get(e.task.id) ?? e.task.conversationId;
+          if (conv === convRef.current) {
+            setEntries((es) => [
+              ...es.filter((x) => x.kind !== "pending-user" && x.kind !== "draft"),
+              { key: nextKey(), kind: "note", text: e.message, tone: e.task.status === "done" ? "info" : "danger" },
+            ]);
+          }
+          markRunning(e.task.id, conv, false);
+          setPerms((q) => q.filter((p) => p.taskId !== e.task.id));
           loadConvs(projectRef.current).catch(() => {});
           break;
+        }
       }
     });
     return off;
@@ -195,21 +202,26 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
       if (!r.ok) { setError(r.message ?? "Không gửi được."); return; }
       setPrompt("");
       setUsage(null);
-      if (r.conversationId != null) setConvId(r.conversationId);
-      if (r.taskId != null && taskRef.current == null) setTask(r.taskId);
-      setEntries((es) => es.some((x) => x.kind === "item" && x.item.kind === "user" && x.item.taskId === r.taskId)
-        ? es : [...es, { key: nextKey(), kind: "pending-user", text }]);
+      if (r.taskId != null && r.conversationId != null) markRunning(r.taskId, r.conversationId, true);
+      if (r.conversationId != null && r.conversationId !== convId) {
+        // Hội thoại mới: tải lại những gì đã ghi (câu hỏi vừa gửi), các dòng sau đến qua sự kiện.
+        convRef.current = r.conversationId;
+        await selectConv(r.conversationId);
+      } else {
+        setEntries((es) => es.some((x) => x.kind === "item" && x.item.kind === "user" && x.item.taskId === r.taskId)
+          ? es : [...es, { key: nextKey(), kind: "pending-user", text }]);
+      }
       loadConvs(projectId).catch(() => {});
     } catch (e) {
       setError(String(e));
     }
   };
   const stop = async () => { if (taskId != null) await window.hub.stopTask(taskId); };
-  const answer = async (allow: boolean) => {
+  const answer = async (allow: boolean, always = false) => {
     const cur = perms[0];
     if (!cur) return;
     setPerms((q) => q.slice(1));
-    await window.hub.answerPermission(cur.requestId, allow);
+    await window.hub.answerPermission(cur.requestId, allow, always);
   };
   const addProject = async () => {
     const p = await window.hub.addProject();
@@ -230,17 +242,17 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
       <div className="chat-body">
         <aside className="convs">
           <div className="field-label">Dự án</div>
-          <select value={projectId ?? ""} disabled={running} onChange={(e) => { setProjectId(Number(e.target.value)); setConvId(null); setEntries([]); }}>
+          <select value={projectId ?? ""} onChange={(e) => { setProjectId(Number(e.target.value)); setConvId(null); setEntries([]); }}>
             {projects.length === 0 && <option value="">(chưa có dự án)</option>}
             {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <button onClick={addProject} disabled={running}>Thêm dự án</button>
-          <button className="primary" disabled={running || noProject} onClick={() => selectConv(null)}>Hội thoại mới</button>
+          <button onClick={addProject}>Thêm dự án</button>
+          <button className="primary" disabled={noProject} onClick={() => selectConv(null)}>Hội thoại mới</button>
           <div className="field-label">Hội thoại</div>
           <div className="conv-list">
             {convs.map((c) => (
-              <button key={c.id} className={`conv${c.id === convId ? " active" : ""}`} disabled={running} onClick={() => selectConv(c.id)}>
-                <span>{c.title || `Hội thoại #${c.id}`}</span>
+              <button key={c.id} className={`conv${c.id === convId ? " active" : ""}`} onClick={() => selectConv(c.id)}>
+                <span>{runningByConv.has(c.id) && <span className="dot" title="Đang chạy">● </span>}{c.title || `Hội thoại #${c.id}`}</span>
                 <span className="muted small">{usd(c.costUsd)} USD</span>
               </button>
             ))}
@@ -267,6 +279,9 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
             </label>
           </div>
 
+          {permission === "full" && (
+            <div className="alert danger small">Đủ quyền: agent tự chạy lệnh, sửa/xoá tệp, gửi dữ liệu và thao tác web không hỏi anh. Vẫn giữ hạn mức chi phí; không đọc cookie/mã truy cập của trình duyệt.</div>
+          )}
           <div className="messages">
             {!hasKey && (
               <div className="card">
@@ -289,9 +304,12 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
             <textarea
               value={prompt}
               rows={3}
-              placeholder={noProject ? "Hãy thêm một dự án trước." : "Nhập yêu cầu… (Ctrl+Enter để gửi)"}
+              placeholder={noProject ? "Hãy thêm một dự án trước." : "Nhập yêu cầu… (Enter để gửi, Shift+Enter để xuống dòng)"}
               onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && e.ctrlKey) { e.preventDefault(); void send(); } }}
+              // Enter gửi, Shift+Enter xuống dòng; đang gõ dở dấu (bộ gõ tiếng Việt) thì không gửi.
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); void send(); }
+              }}
             />
             <div className="col">
               <button className="primary" disabled={running || !hasKey || noProject || !prompt.trim()} onClick={send}>Gửi</button>
@@ -310,10 +328,16 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
         <div className="overlay">
           <div className="dialog" role="dialog" aria-modal="true">
             <h3>AI muốn dùng công cụ {perm.toolName}</h3>
+            {(() => {
+              const conv = taskConv.current.get(perm.taskId);
+              const c = convs.find((x) => x.id === conv);
+              return conv !== convId ? <div className="small muted">Hội thoại: {c?.title ?? `#${conv ?? "?"}`} (việc #{perm.taskId})</div> : null;
+            })()}
             <pre className="mono summary">{perm.summary}</pre>
             {perms.length > 1 && <div className="muted small">Còn {perms.length - 1} yêu cầu đang chờ.</div>}
             <div className="row end">
               <button className="danger-btn" onClick={() => answer(false)}>Từ chối</button>
+              <button onClick={() => answer(true, true)} title="Không hỏi lại loại thao tác này trong hội thoại này (đến khi tắt app)">Đồng ý luôn</button>
               <button className="primary" onClick={() => answer(true)}>Cho phép</button>
             </div>
           </div>

@@ -1,6 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from "electron";
 import { listSessions, query } from "@anthropic-ai/claude-agent-sdk";
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { HubEvent, InventoryRow, OldSession, Settings, StartTaskInput } from "../shared/contract";
 import { AgentRunner } from "./agent";
@@ -10,6 +10,7 @@ import { KeyRing } from "./keyring";
 import { isThinhVuong, scanFolder } from "./inventory";
 import { isInside } from "./policy";
 import { SkillStore } from "./skills";
+import { Connections } from "./connections";
 import { claudeExecutablePath, playwrightMcpCliPath } from "./sdk-path";
 import { profilePaths } from "./chrome";
 import { createRequire } from "node:module";
@@ -28,6 +29,19 @@ async function oldSessions(dir: string, limit = 50): Promise<OldSession[]> {
   const list = await listSessions({ dir, limit, includeProgrammatic: false, includeWorktrees: false });
   return list.map((s) => ({ sessionId: s.sessionId, title: s.customTitle || s.summary || s.firstPrompt || s.sessionId,
     lastModified: new Date(s.lastModified).toISOString(), sizeBytes: s.fileSize ?? null, gitBranch: s.gitBranch ?? null, imported: false }));
+}
+
+// Mã ghép nối tiện ích Playwright Extension, mã hoá trên máy.
+class ExtensionToken {
+  constructor(private file: string, private cipher: { encrypt(s: string): Buffer; decrypt(b: Buffer): string }) {}
+  get(): string | null {
+    try { return existsSync(this.file) ? this.cipher.decrypt(readFileSync(this.file)) || null : null; } catch { return null; }
+  }
+  set(t: string) {
+    const v = t.trim();
+    if (!v) { rmSync(this.file, { force: true }); return; }
+    writeFileSync(this.file, this.cipher.encrypt(v), { mode: 0o600 });
+  }
 }
 
 // Cửa sổ trình duyệt mở bằng hồ sơ riêng của app để anh Trung tự đăng nhập. Hồ sơ chỉ một trình duyệt dùng được
@@ -56,7 +70,7 @@ async function openBrowserProfile(db: HubDb, runner: AgentRunner, dataDir: strin
   }
 }
 
-function registerIpc(db: HubDb, keys: KeyRing, runner: AgentRunner, skills: SkillStore) {
+function registerIpc(db: HubDb, keys: KeyRing, runner: AgentRunner, skills: SkillStore, conns: Connections, ext: ExtensionToken) {
   const h = (ch: string, fn: (...a: any[]) => unknown) => ipcMain.handle(ch, (_e, ...a) => fn(...a));
   h("appVersion", () => app.getVersion());
   h("hasApiKey", () => keys.has());
@@ -71,7 +85,7 @@ function registerIpc(db: HubDb, keys: KeyRing, runner: AgentRunner, skills: Skil
     if (err) throw new Error(err);
     // Danh sách website: chỉ giữ tên miền hợp lệ và quyền đã biết.
     const c = s.chrome ?? db.getSettings().chrome;
-    s.chrome = { enabled: c.enabled !== false, browser: c.browser === "msedge" ? "msedge" : "chrome",
+    s.chrome = { enabled: c.enabled !== false, mode: c.mode === "main" ? "main" : "app", browser: c.browser === "msedge" ? "msedge" : "chrome",
       sites: (Array.isArray(c.sites) ? c.sites : []).filter((x) => /^[a-z0-9.-]+$/.test(String(x?.host ?? "")) && ["read", "ask", "auto"].includes(x.mode))
         .map((x) => ({ host: String(x.host), mode: x.mode })) };
     db.saveSettings(s);
@@ -162,6 +176,19 @@ function registerIpc(db: HubDb, keys: KeyRing, runner: AgentRunner, skills: Skil
   h("listConversations", (id: number) => db.listConversations(Number(id)));
   h("conversationItems", (id: number) => db.conversationItems(Number(id)));
   h("search", (q: string) => db.search(String(q ?? "")));
+  h("listConnections", () => conns.info());
+  h("addConnection", (k: string, n?: string, u?: string) => {
+    const kind = ["windsor", "gmail", "drive", "sheets", "custom"].includes(k) ? (k as Parameters<Connections["add"]>[0]) : "custom";
+    return conns.add(kind, n == null ? undefined : String(n), u == null ? undefined : String(u));
+  });
+  h("removeConnection", (id: string) => conns.remove(String(id)));
+  h("setConnectionEnabled", (id: string, on: boolean) => conns.setEnabled(String(id), on === true));
+  h("setConnectionClient", (id: string, cid: string, sec: string) => conns.setClient(String(id), String(cid ?? ""), String(sec ?? "")));
+  h("loginConnection", (id: string) => conns.login(String(id)));
+  h("logoutConnection", (id: string) => conns.logout(String(id)));
+  h("setExtensionToken", (t: string) => ext.set(String(t ?? "")));
+  h("hasExtensionToken", () => ext.get() !== null);
+  h("runningTasks", () => runner.runningTasks());
   h("openBrowserProfile", () => openBrowserProfile(db, runner, app.getPath("userData")));
   h("startTask", async (input: StartTaskInput) => {
     if (browserWindowOpen) return { ok: false, message: "Trình duyệt của app đang mở để đăng nhập. Đóng cửa sổ đó rồi giao việc." };
@@ -169,7 +196,7 @@ function registerIpc(db: HubDb, keys: KeyRing, runner: AgentRunner, skills: Skil
     return { ok: r.ok, taskId: r.taskId, conversationId: r.conversationId, message: r.message };
   });
   h("stopTask", (id: number) => runner.stop(Number(id)));
-  h("answerPermission", (id: string, allow: boolean) => runner.answerPermission(String(id), allow === true));
+  h("answerPermission", (id: string, allow: boolean, always?: boolean) => runner.answerPermission(String(id), allow === true, always === true));
   h("runningTaskId", () => runner.runningTaskId());
   h("checkUpdate", () => checkUpdateNow());
   h("installUpdate", () => {
@@ -203,11 +230,16 @@ async function startApp() {
   db.markInterrupted();
   const keys = new KeyRing(path.join(dataDir, "api-keys.bin"), path.join(dataDir, "api-keys-state.json"), path.join(dataDir, "api-key.bin"));
   const skills = new SkillStore(path.join(dataDir, "skills"));
+  const cipher = { encrypt: (s: string) => safeStorage.encryptString(s), decrypt: (b: Buffer) => safeStorage.decryptString(b) };
+  const conns = new Connections(path.join(dataDir, "connections.json"), path.join(dataDir, "connections.bin"), cipher,
+    (url) => shell.openExternal(url));
+  const ext = new ExtensionToken(path.join(dataDir, "chrome-extension-token.bin"), cipher);
   const runner = new AgentRunner({
     db, query, emit, keys, skills, claudePath: claudeExecutablePath(), appVersion: app.getVersion(),
-    chrome: { nodeBinary: process.execPath, cliPath: playwrightMcpCliPath(), ...profilePaths(dataDir) },
+    chrome: { nodeBinary: process.execPath, cliPath: playwrightMcpCliPath(), ...profilePaths(dataDir), extensionToken: () => ext.get() },
+    connections: conns,
   });
-  registerIpc(db, keys, runner, skills);
+  registerIpc(db, keys, runner, skills, conns, ext);
 
   win = new BrowserWindow({
     width: 1280, height: 820, minWidth: 960, minHeight: 600, title: "Trung Kiên AI Hub",

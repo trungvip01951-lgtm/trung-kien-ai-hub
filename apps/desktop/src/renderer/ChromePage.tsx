@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Settings, SiteMode } from "../shared/contract";
 
 const MODES: { id: SiteMode; label: string; hint: string }[] = [
@@ -18,6 +18,9 @@ export function ChromePage({ settings, onSettings }: { settings: Settings | null
   const [mode, setMode] = useState<SiteMode>("ask");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [opening, setOpening] = useState(false);
+  const [hasToken, setHasToken] = useState(false);
+  const [token, setToken] = useState("");
+  useEffect(() => { window.hub.hasExtensionToken().then(setHasToken).catch(() => {}); }, []);
   if (!settings) return <div className="page" />;
   const c = settings.chrome;
   const save = async (chrome: Settings["chrome"]) => {
@@ -39,7 +42,7 @@ export function ChromePage({ settings, onSettings }: { settings: Settings | null
     <div className="page">
       <div className="row between">
         <h1>Chrome</h1>
-        <button className="primary" disabled={opening} onClick={() => void open()}>Mở trình duyệt của app để đăng nhập</button>
+        {c.mode === "app" && <button className="primary" disabled={opening} onClick={() => void open()}>Mở trình duyệt của app để đăng nhập</button>}
       </div>
       <div className="note small">
         Agent điều khiển trình duyệt bằng Playwright MCP với <b>hồ sơ riêng của app</b> (không dùng hồ sơ Chrome anh đang dùng hằng ngày).
@@ -54,6 +57,13 @@ export function ChromePage({ settings, onSettings }: { settings: Settings | null
           <span><b>Cho agent điều khiển trình duyệt</b></span>
         </label>
         <div className="row">
+          <span className="small muted">Dùng trình duyệt nào:</span>
+          <select value={c.mode} onChange={(e) => void save({ ...c, mode: e.target.value as Settings["chrome"]["mode"] })}>
+            <option value="app">Trình duyệt riêng của app (an toàn hơn)</option>
+            <option value="main">Chrome anh đang dùng (dùng sẵn tài khoản đã đăng nhập)</option>
+          </select>
+        </div>
+        <div className="row">
           <span className="small muted">Trình duyệt đã cài trên máy:</span>
           <select value={c.browser} onChange={(e) => void save({ ...c, browser: e.target.value as Settings["chrome"]["browser"] })}>
             <option value="chrome">Google Chrome</option>
@@ -61,6 +71,24 @@ export function ChromePage({ settings, onSettings }: { settings: Settings | null
           </select>
         </div>
       </div>
+
+      {c.mode === "main" && (
+        <div className="card small">
+          <b>Nối với Chrome anh đang dùng</b> (làm 1 lần). Tiện ích Claude trong Chrome không dùng được với app vì app chạy bằng API key
+          (tiện ích đó chỉ nhận đăng nhập claude.ai), nên app dùng tiện ích chính thức của Playwright:
+          <ol>
+            <li>Mở Chrome, cài <a href="https://chromewebstore.google.com/detail/playwright-extension/mmlmfjhmonkocbjadbfplnigmagldckm" target="_blank" rel="noreferrer">Playwright Extension</a>.</li>
+            <li>Bấm biểu tượng tiện ích, chép mã (token) hiện ra, dán vào ô dưới rồi Lưu. Không có mã thì mỗi lần agent dùng trình duyệt, Chrome sẽ hỏi anh bấm cho phép.</li>
+            <li>Giao việc như bình thường; agent mở tab mới trong Chrome của anh và dùng được các tài khoản anh đã đăng nhập. Chrome phải đang mở.</li>
+          </ol>
+          <div className="row">
+            <input className="grow" type="password" placeholder={hasToken ? "Đã lưu mã (nhập mã mới để thay)" : "Mã của Playwright Extension"} value={token} onChange={(e) => setToken(e.target.value)} />
+            <button disabled={!token.trim()} onClick={async () => { await window.hub.setExtensionToken(token); setToken(""); setHasToken(true); setMsg({ ok: true, text: "Đã lưu mã (mã hoá trên máy)." }); }}>Lưu</button>
+            {hasToken && <button onClick={async () => { await window.hub.setExtensionToken(""); setHasToken(false); }}>Xoá mã</button>}
+          </div>
+          <div className="muted">Lưu ý: chế độ này agent chạm được mọi tài khoản đang đăng nhập trong Chrome của anh. Quyền theo website bên dưới vẫn áp dụng.</div>
+        </div>
+      )}
 
       <h2>Website được phép</h2>
       <div className="muted small">

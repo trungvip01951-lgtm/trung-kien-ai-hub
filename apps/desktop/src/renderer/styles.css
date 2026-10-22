@@ -116,3 +116,5 @@ textarea { resize: vertical; width: 100%; }
 .dialog.wide { width: min(900px, 94vw); max-height: 86vh; overflow-y: auto; }
 .preview-file { white-space: pre-wrap; max-height: 360px; overflow: auto; background: var(--panel2); border-radius: 6px; padding: 10px; }
 .table-scroll { overflow-x: auto; }
+.dot { color: var(--ok); }
+.danger-text { color: var(--danger); }

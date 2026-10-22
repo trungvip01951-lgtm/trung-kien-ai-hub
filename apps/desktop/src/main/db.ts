@@ -8,7 +8,7 @@ import { DEFAULT_LIMITS } from "./budget";
 export const DEFAULT_SETTINGS: Settings = {
   limits: DEFAULT_LIMITS, defaultModel: "claude-sonnet-5-5", defaultEffort: "medium",
   defaultPermission: "write", theme: "system", autoRouting: true,
-  chrome: { enabled: true, browser: "chrome", sites: [] },
+  chrome: { enabled: true, mode: "app", browser: "chrome", sites: [] },
 };
 
 const SCHEMA = `

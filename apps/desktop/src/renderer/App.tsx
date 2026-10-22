@@ -8,6 +8,7 @@ import { CostPage } from "./CostPage";
 import { SettingsPage } from "./SettingsPage";
 import { SkillsPage } from "./SkillsPage";
 import { ChromePage } from "./ChromePage";
+import { McpPage } from "./McpPage";
 import logo from "./logo.svg";
 import { Placeholder } from "./util";
 
@@ -17,7 +18,7 @@ const NAV: { id: string; label: string; todo?: boolean }[] = [
   { id: "tasks", label: "Công việc đang chạy" },
   { id: "skills", label: "Skills" },
   { id: "agents", label: "Agents", todo: true },
-  { id: "mcp", label: "MCP và công cụ", todo: true },
+  { id: "mcp", label: "MCP và công cụ" },
   { id: "chrome", label: "Chrome" },
   { id: "windows", label: "Máy tính Windows", todo: true },
   { id: "docs", label: "Tài liệu", todo: true },
@@ -80,6 +81,7 @@ export function App() {
         </div>
         {nav === "projects" && <ProjectsPage onOpenConversation={(id) => { setOpen({ conversationId: id, nonce: Date.now() }); go("chat"); }} />}
         {nav === "skills" && <SkillsPage />}
+        {nav === "mcp" && <McpPage />}
         {nav === "chrome" && <ChromePage settings={settings} onSettings={setSettings} />}
         {nav === "tasks" && <TasksPage />}
         {nav === "history" && <HistoryPage onOpen={(id) => { setOpen({ conversationId: id, nonce: Date.now() }); go("chat"); }} />}
