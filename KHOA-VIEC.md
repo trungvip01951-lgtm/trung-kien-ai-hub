@@ -5,4 +5,4 @@ Trước khi ghi: thêm 1 dòng. Xong hoặc dừng: điền giờ nhả và k�
 | Tên AI | Phạm vi (web / tài khoản / tệp) | Giờ bắt đầu (dd/mm/yyyy hh:mm) | Giờ nhả | Kết quả |
 |---|---|---|---|---|
 | Claude-1 (Claude Code, phiên web) | Toàn bộ repo: dựng cấu trúc ban đầu | 22/10/2026 16:27 | 22/10/2026 16:29 | Xong, bàn giao ở ho-so/BAN-GIAO.md |
-| Claude-1 (Claude Code, phiên web) | Toàn bộ repo: Mốc 0 (khung Electron, build Windows) | 22/10/2026 16:45 | | |
+| Claude-1 (Claude Code, phiên web) | Toàn bộ repo: Mốc 0 (khung Electron, build Windows) | 22/10/2026 16:45 | 22/10/2026 16:52 | Xong Mốc 0, bàn giao ở ho-so/BAN-GIAO.md |

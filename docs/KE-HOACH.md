@@ -26,7 +26,7 @@ Yêu cầu gốc: `docs/YEU-CAU-GOC.md` (nguyên văn của anh Trung, không s�
 
 | Mốc | Nội dung | Tiêu chí (mục XVI yêu cầu gốc) | Trạng thái |
 |---|---|---|---|
-| 0 | Khung Electron + TypeScript, Agent SDK đóng gói được, GitHub Actions build .exe, cài im lặng và kiểm tra khói trên Windows | 1 (trên máy CI) | xem `ho-so/BAN-GIAO.md` |
+| 0 | Khung Electron + TypeScript, Agent SDK đóng gói được, GitHub Actions build .exe, cài im lặng và kiểm tra khói trên Windows | 1 (trên máy CI) | ĐẠT trên máy CI 22/10/2026; chờ anh cài thử trên máy thật |
 | 1 | API key (DPAPI), chọn dự án, chat streaming qua Agent SDK, hiện bước công cụ, lịch sử SQLite/FTS5, dừng/tiếp tục, token và chi phí, hạn mức công việc/ngày/tháng có chặn cứng | 1–9, 17–20 | chưa làm |
 | 2 | Chrome: hồ sơ riêng, quyền theo website, xác nhận thao tác rủi ro | 11–13 | chưa làm |
 | 3 | Kiểm kê và nhập dự án cũ trên máy anh (chỉ đọc), thử tiếp tục 1 việc thật mỗi nhóm | 24–25 | chưa làm |
