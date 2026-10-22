@@ -56,3 +56,14 @@ Mục mới nối xuống cuối, theo mẫu chung (skill `quy-tac-lam-viec-chun
 - Sao lưu để hoàn tác: tag v0.2.1 (trước Mốc 3), v0.3.0 (trước Mốc 2).
 - Khoá đã nhả: dòng Mốc 3/Mốc 2 trong `KHOA-VIEC.md`.
 - Việc cần anh Trung: 1. Bấm Kiểm tra cập nhật → lên 0.4.0. 2. Skills → Tải Skill lên 1 tệp .zip thật, giao 1 việc dùng Skill đó. 3. Dự án → Quét thư mục chứa dự án cũ, Thêm vào app, mở "Phiên Claude Code cũ" hoặc giao việc tiếp. 4. Chrome → thêm website (ví dụ web của anh, quyền Hỏi từng thao tác), bấm Mở trình duyệt để đăng nhập nếu cần, rồi giao 1 việc đọc trang.
+
+## BÀN GIAO: Trung Kiên AI Hub · Claude-1 · 22/10/2026 23:07
+
+- Việc đã làm: bản 0.5.0 = 6 yêu cầu anh nhắn 22/10 (nhiều hội thoại cùng lúc, Đủ quyền, Đồng ý luôn, kết nối Windsor/Google Trang tính/Drive/Gmail, Chrome chính qua Playwright Extension, Enter gửi) + Mốc 4 (Windows, Excel/Word/PDF, sao lưu/khôi phục, hàng đợi, lịch) + Mốc 5 (10 AI chuyên môn, bộ nhớ dài hạn). Chi tiết: `ho-so/NHAT-KY.md` các mục 0.5.0.
+- Làm tới đâu: nhánh `claude/intelligent-hopper-v2t54v`, Release v0.5.0 (CI đăng).
+- Nghiệm thu (mục XVI): 14 đọc Excel, 15 sửa Word, 16 xuất PDF ĐẠT bằng test + SDK thật với API giả (PDF trong kiểm tra khói Windows); 17 chạy script, 18 ghi log ĐẠT từ Mốc 1; 21 sao lưu/khôi phục ĐẠT bằng test; 23 khôi phục sau lỗi ĐẠT bằng test (việc bị ngắt, khôi phục dở tự trả lại); điều khiển Windows ĐẠT trên máy Windows của CI (Notepad); kết nối Windsor/Google: luồng OAuth ĐẠT với máy chủ giả, CHƯA THỂ XÁC MINH với dịch vụ thật (cần anh đăng nhập; Google cần OAuth client và tài khoản được mở MCP xem trước); Chrome chính qua Playwright Extension CHƯA THỂ XÁC MINH (cần tiện ích trên máy anh); 6 thực thi Skill thật, 25 tiếp tục việc thật CHƯA THỂ XÁC MINH (cần key thật).
+- Còn lại: Zalo/AI Desk (mục IX.D) chưa làm, cần anh quyết. Rủi ro đã ghi: mã OAuth nằm trong tham số dòng lệnh tiến trình agent (chỉ lộ khi agent đã được chạy lệnh); trang tự chuyển hướng chậm; tổng chi phí khi resume phiên cũ chưa đo bằng key thật.
+- Tệp kết quả: `apps/desktop/`; file cài ở Release v0.5.0.
+- Sao lưu để hoàn tác: tag v0.4.0.
+- Khoá đã nhả: dòng 0.5.0 trong `KHOA-VIEC.md`.
+- Việc cần anh Trung: cập nhật lên 0.5.0; thử các mục ở báo cáo cuối phiên; trả lời câu hỏi Zalo.
