@@ -27,3 +27,9 @@ __pycache__/
 .venv/
 dist/
 build/
+
+# File cài và bản đóng gói (CI tải lên mục Artifacts, không lưu vào git)
+release/*
+!release/README.md
+apps/desktop/release/
+apps/desktop/smoke-*.json

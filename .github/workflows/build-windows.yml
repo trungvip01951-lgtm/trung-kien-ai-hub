@@ -1,0 +1,57 @@
+name: Build Windows
+
+# Build file cài Windows (.exe) và chạy kiểm tra khói trên máy Windows thật của GitHub.
+# Không dùng API key, không gọi Claude API.
+on:
+  push:
+    branches: [main, "claude/**"]
+    paths: ["apps/desktop/**", ".github/workflows/build-windows.yml"]
+  pull_request:
+    paths: ["apps/desktop/**", ".github/workflows/build-windows.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: npm ci
+      - run: npm run dist:win
+
+      - name: Kiểm tra khói bản chưa cài (win-unpacked)
+        run: |
+          $exe = Join-Path $PWD "release/win-unpacked/Trung Kien AI Hub.exe"
+          $out = Join-Path $PWD "smoke-unpacked.json"
+          $p = Start-Process -FilePath $exe -ArgumentList "--smoke-test","--smoke-out=$out" -Wait -PassThru
+          Get-Content $out
+          if ($p.ExitCode -ne 0) { throw "Smoke test thất bại, mã thoát $($p.ExitCode)" }
+
+      - name: Cài im lặng rồi kiểm tra khói bản đã cài
+        run: |
+          $setup = Get-ChildItem release -Filter "*Setup*.exe" | Select-Object -First 1
+          Start-Process -FilePath $setup.FullName -ArgumentList "/S" -Wait
+          $exe = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Filter "Trung Kien AI Hub.exe" | Select-Object -First 1
+          if (-not $exe) { throw "Không tìm thấy ứng dụng sau khi cài" }
+          Write-Output "Đã cài tại: $($exe.FullName)"
+          $out = Join-Path $PWD "smoke-installed.json"
+          $p = Start-Process -FilePath $exe.FullName -ArgumentList "--smoke-test","--smoke-out=$out" -Wait -PassThru
+          Get-Content $out
+          if ($p.ExitCode -ne 0) { throw "Smoke test bản đã cài thất bại, mã thoát $($p.ExitCode)" }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trung-kien-ai-hub-windows
+          path: |
+            apps/desktop/release/*Setup*.exe
+            apps/desktop/smoke-*.json
+          if-no-files-found: warn

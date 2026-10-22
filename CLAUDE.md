@@ -9,15 +9,17 @@ Yêu cầu mới nhất của anh Trung > tệp này > quy tắc làm việc chu
 ## Đầu phiên, đọc theo thứ tự
 
 1. `KHOA-VIEC.md`: ai đang giữ phạm vi nào.
-2. `ho-so/QUYET-DINH.md`: việc anh Trung đã chốt, không hỏi lại.
-3. `ho-so/SO-LOI.md`: lỗi đã mắc, tránh lặp.
-4. `ho-so/NHAT-KY.md`: vài mục gần nhất.
-5. `ho-so/BAN-GIAO.md`: phiên trước dừng ở đâu.
+2. `docs/KE-HOACH.md`: mốc đang làm, sự thật đã kiểm. Yêu cầu gốc `docs/YEU-CAU-GOC.md` chỉ đọc đúng mục liên quan.
+3. `ho-so/QUYET-DINH.md`: việc anh Trung đã chốt, không hỏi lại.
+4. `ho-so/SO-LOI.md`: lỗi đã mắc, tránh lặp.
+5. `ho-so/NHAT-KY.md`: vài mục gần nhất.
+6. `ho-so/BAN-GIAO.md`: phiên trước dừng ở đâu.
 
 Cấu trúc thư mục xem `README.md`.
 
 ## Giới hạn hiện tại (anh Trung chốt 22/10/2026)
 
+- Trên cloud: không API key, không gọi Claude API thật, không dữ liệu thật. API key và dữ liệu thật chỉ nằm trong app đã cài trên máy anh.
 - Chưa kết nối dữ liệu thật: không gọi API Zalo, không đăng nhập tài khoản Zalo, không đọc tin nhắn hay danh bạ thật.
 - Chưa truy cập thông tin nhạy cảm: không hỏi, không lưu mật khẩu, mã truy cập (access token), khoá bí mật (secret key), số điện thoại hay thông tin khách thật.
 - Muốn mở giới hạn nào phải có lệnh mới của anh Trung, ghi nguyên văn vào `ho-so/QUYET-DINH.md` trước khi làm.
@@ -47,4 +49,8 @@ Ngày viết dd/mm/yyyy, giờ Việt Nam (UTC+7).
 
 ## Mã nguồn
 
-Chưa chọn ngôn ngữ và khung (framework). Khi anh Trung chốt, bổ sung vào đây: lệnh cài, lệnh chạy, lệnh kiểm thử, quy ước đặt tên.
+- Electron + TypeScript, Node 22, mã ở `apps/desktop/`. Phiên bản thư viện ghim cứng (không dùng `^`); đổi phiên bản phải kiểm tài liệu chính thức và ghi nhật ký.
+- Agent SDK chạy kèm tệp `claude.exe`; bản đóng gói phải giữ `asarUnpack` cho `node_modules/@anthropic-ai/**`, nếu không ứng dụng không chạy được agent.
+- Trước khi đẩy mã: `npm run build` và `npm run smoke` trong `apps/desktop` (trên Linux cần `xvfb-run -a`). CI "Build Windows" phải xanh.
+- Không viết lại thứ Agent SDK đã có (Skills, CLAUDE.md, subagents, hooks, MCP, phiên). Lý do: `docs/KE-HOACH.md`.
+- Không đặt tên hay giao diện giống "Claude Code" (quy định của Agent SDK).

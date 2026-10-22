@@ -4,3 +4,13 @@ Ghi nguyên văn, kèm ngày và nơi anh nói. Việc đã có ở đây thì k
 
 ## 22/10/2026 — phiên Claude Code (web)
 > Tạo cấu trúc dự án Trung Kiên AI Hub trong repository này. Tạo README.md, CLAUDE.md và các thư mục cần thiết để quản lý dự án phần mềm chat Zalo. Chưa kết nối dữ liệu thực tế và chưa truy cập thông tin nhạy cảm.
+
+## 22/10/2026 — phiên Claude Code (web), trả lời 2 câu hỏi tư vấn
+> 1.1
+> 2. 1
+
+Nghĩa theo câu hỏi đã hỏi:
+1. Làm theo mốc: Mốc 0 và 1 trước, anh dùng thử rồi mới làm tiếp (không làm liền toàn bộ yêu cầu gốc).
+2. Giữ quy tắc ngày 22/10/2026 trên cloud: không API key, không dữ liệu thật trên cloud; API key và dữ liệu thật chỉ nằm trong app trên máy anh.
+
+Mục tiêu dự án mở rộng từ "phần mềm chat Zalo" thành ứng dụng AI Agent cho Windows theo `docs/YEU-CAU-GOC.md` (anh gửi 22/10/2026); Zalo là một phần (mục IX.D).

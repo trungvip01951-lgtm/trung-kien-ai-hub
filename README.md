@@ -1,45 +1,36 @@
 # Trung Kiên AI Hub
 
-Kho mã (repository) và hồ sơ quản lý của phần mềm chat Zalo.
+Ứng dụng AI Agent cho Windows của anh Trung: giao việc bằng tiếng Việt như Claude Cowork, chạy bằng tín dụng Claude API (qua Claude Agent SDK) thay cho hạn mức gói Max, có giới hạn chi phí. Yêu cầu đầy đủ: `docs/YEU-CAU-GOC.md`. Kế hoạch và các mốc: `docs/KE-HOACH.md`.
 
 ## Trạng thái — 22/10/2026
 
-- Mới dựng khung: thư mục, quy tắc cho AI, sổ theo dõi.
-- Chưa có mã nguồn, chưa chọn ngôn ngữ lập trình.
-- Chưa kết nối Zalo hay dữ liệu thật, chưa lưu thông tin nhạy cảm nào (anh Trung chốt 22/10/2026, xem `ho-so/QUYET-DINH.md`).
+- Đang làm Mốc 0: khung ứng dụng Electron, đóng gói Agent SDK, build file cài Windows bằng GitHub Actions. Chưa có chức năng chat.
+- Trên cloud không có API key và dữ liệu thật (anh Trung chốt 22/10/2026, xem `ho-so/QUYET-DINH.md`).
 
 ## Cấu trúc
 
 ```
 trung-kien-ai-hub/
-├── README.md        Giới thiệu, trạng thái, cấu trúc (tệp này)
-├── CLAUDE.md        Quy tắc cho AI làm việc trong repo
-├── KHOA-VIEC.md     Sổ khoá việc: AI nào đang ghi phạm vi nào
-├── .gitignore       Chặn bí mật và dữ liệu thật khỏi git
-├── ho-so/           Hồ sơ quản lý dự án
-│   ├── NHAT-KY.md     Nhật ký thay đổi
-│   ├── SO-LOI.md      Sổ lỗi đã mắc
-│   ├── QUYET-DINH.md  Quyết định của anh Trung (nguyên văn, kèm ngày)
-│   └── BAN-GIAO.md    Bàn giao giữa các phiên AI
-├── docs/            Tài liệu sản phẩm
-│   ├── yeu-cau/       Yêu cầu tính năng
-│   ├── thiet-ke/      Thiết kế kỹ thuật
-│   └── zalo/          Ghi chú nền tảng Zalo: API, giới hạn, điều khoản
-├── src/             Mã nguồn (chưa có)
-├── tests/           Kiểm thử tự động
-├── scripts/         Script tiện ích
-├── config/          Cấu hình mẫu, chỉ giá trị giả
-└── data/mau/        Dữ liệu giả để thử
+├── README.md, CLAUDE.md, KHOA-VIEC.md
+├── apps/desktop/        Ứng dụng Electron + TypeScript
+├── packages/            Gói dùng chung, tạo dần theo mốc
+├── docs/                YEU-CAU-GOC.md, KE-HOACH.md, yeu-cau/, thiet-ke/, zalo/
+├── ho-so/               Nhật ký, sổ lỗi, quyết định, bàn giao
+├── tests/, scripts/, config/, data/mau/
+├── release/             File cài không lưu ở đây, lấy ở GitHub Actions
+└── .github/workflows/   build-windows.yml: build .exe + kiểm tra khói trên Windows
 ```
 
-## Đọc từ đâu
+## Chạy thử trên máy (lập trình viên)
 
-- Người: tệp này, rồi `docs/yeu-cau/`.
-- AI (Claude, ChatGPT): `CLAUDE.md` trước khi làm bất cứ việc gì.
+```
+cd apps/desktop
+npm ci
+npm start          # mở cửa sổ ứng dụng
+npm run smoke      # kiểm tra khói: Agent SDK nạp được, không gọi API
+npm run dist:win   # build file cài Windows (chạy trên Windows)
+```
 
-## Việc cần chốt trước khi viết mã
+## Lấy file cài
 
-1. Phần mềm dùng vào việc gì, ai dùng (anh Trung, nhân viên hay khách hàng).
-2. Kênh Zalo: Zalo Official Account (OA, tài khoản doanh nghiệp, có API chính thức; API là cổng để phần mềm gọi sang Zalo) hay tài khoản Zalo cá nhân.
-3. Ngôn ngữ lập trình và khung dựng sẵn (framework).
-4. Nơi chạy phần mềm: máy trong công ty hay máy chủ thuê.
+GitHub → tab Actions → quy trình "Build Windows" → lần chạy mới nhất → mục Artifacts → `trung-kien-ai-hub-windows`.
