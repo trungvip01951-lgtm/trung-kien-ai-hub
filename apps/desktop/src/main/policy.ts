@@ -93,9 +93,8 @@ export function decide(level: PermissionLevel, toolName: string, input: unknown,
   const i = (input ?? {}) as Record<string, unknown>;
   if (SAFE.has(toolName)) return { decision: "allow", reason: "Công cụ điều phối" };
   if (level === "full") {
-    // Đủ quyền: không hỏi; AI phụ vẫn ép chạy chờ để không tiêu tiền sau khi việc kết thúc.
-    const updatedInput = SUBAGENT.has(toolName) && i.run_in_background ? { ...i, run_in_background: false } : undefined;
-    return { decision: "allow", reason: "Đủ quyền", updatedInput };
+    // Đủ quyền: không hỏi. AI phụ được chạy nền: app giữ việc mở tới khi AI phụ xong (vẫn tính vào hạn mức của việc).
+    return { decision: "allow", reason: "Đủ quyền" };
   }
 
   if (FILE_READ.has(toolName)) {
@@ -106,14 +105,14 @@ export function decide(level: PermissionLevel, toolName: string, input: unknown,
   }
 
   if (SUBAGENT.has(toolName)) {
-    // AI phụ chạy nền có thể tiếp tục tiêu tiền sau khi việc kết thúc: ép chạy chờ.
-    const updatedInput = i.run_in_background ? { ...i, run_in_background: false } : undefined;
+    // AI phụ được chạy nền (song song, AI chính vẫn trả lời anh): app giữ việc mở tới khi AI phụ xong,
+    // nên chi phí vẫn tính vào việc và chịu hạn mức của việc.
     if (i.isolation) {
       return level === "read"
         ? { decision: "deny", reason: "Chế độ Chỉ đọc: không tạo AI phụ ở môi trường tách riêng." }
         : { decision: "ask", reason: `AI phụ chạy ở môi trường tách riêng (${String(i.isolation)})` };
     }
-    return { decision: "allow", reason: "AI phụ (vẫn chịu cùng luật quyền)", updatedInput };
+    return { decision: "allow", reason: "AI phụ (vẫn chịu cùng luật quyền)" };
   }
 
   if (NETWORK.has(toolName)) return { decision: "ask", reason: "Truy cập mạng (có thể gửi dữ liệu ra ngoài)" };

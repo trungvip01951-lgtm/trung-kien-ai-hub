@@ -333,9 +333,12 @@ test("nhiều hội thoại cùng lúc: chạy song song, giữ trước hạn m
   t.db.saveSettings({ ...t.db.getSettings(), limits: { ...t.db.getSettings().limits, perTaskUsd: 4, dailyUsd: 10 } });
   const a = await t.runner.start(input(t.project.id));
   assert.ok(a.ok);
-  const again = await t.runner.start(input(t.project.id, a.conversationId!));
-  assert.equal(again.ok, false);
-  assert.match(again.message!, /đang chạy/);
+  // Cùng hội thoại đang chạy: tin gửi thêm đi thẳng vào lượt đang chạy (không mở việc mới).
+  const again = await t.runner.start({ ...input(t.project.id, a.conversationId!), prompt: "Hỏi thêm giữa chừng" });
+  assert.equal(again.ok, true);
+  assert.equal(again.joined, true);
+  assert.equal(again.taskId, a.taskId);
+  assert.ok(t.db.conversationItems(a.conversationId!).some((x) => x.kind === "user" && x.text === "Hỏi thêm giữa chừng"));
   // Việc 1 giữ trước 4 USD: việc 2 còn được tối đa min(4, 10 - 4) = 4; việc 3 còn 2.
   const b = await t.runner.start(input(t.project.id));
   assert.ok(b.ok);
@@ -344,7 +347,7 @@ test("nhiều hội thoại cùng lúc: chạy song song, giữ trước hạn m
   assert.ok(c.ok);
   assert.equal(t.runner.usageNow().reservedUsd.toFixed(2), "10.00");
   const d = await t.runner.start(input(t.project.id));
-  assert.equal(d.ok, false);                                   // tối đa 3 việc
+  assert.equal(d.ok, false);                                   // hạn mức ngày đã giữ hết cho 3 việc
   assert.equal(t.runner.runningTasks().length, 3);
   assert.ok(t.calls[0].mcpServers?.chrome);                     // việc đầu có trình duyệt
   assert.equal(t.calls[1].mcpServers, undefined);               // việc sau không
@@ -428,4 +431,41 @@ test("ảnh: nhận theo nội dung, không theo đuôi tệp", () => {
   assert.equal(checkImages([im]), null);
   assert.equal(im.mediaType, "image/webp");
   assert.notEqual(checkImages([{ mediaType: "image/png", data: Buffer.from("not an image").toString("base64"), name: "x.png" }]), null);
+});
+
+test("gửi thêm khi đang chạy: tin vào lượt đang chạy; còn AI phụ chạy nền thì giữ việc mở tới khi xong", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const seenInput: unknown[] = [];
+  let closedAtEnd = false;
+  const sys = (o: object) => ({ type: "system", session_id: "phien-1", ...o }) as unknown as SDKMessage;
+  const t = setup(async function* () {
+    yield init();
+    yield sys({ subtype: "task_started", task_id: "nen-1", description: "AI phụ", is_backgrounded: true });
+    yield result(0.01);                 // hết lượt 1 nhưng AI phụ còn chạy: chưa đóng
+    await gate;
+    yield sys({ subtype: "task_notification", task_id: "nen-1", status: "completed", output_file: "", summary: "xong" });
+    yield assistant("m2", [{ type: "text", text: "AI phụ xong, báo anh." }]);
+    yield result(0.02);                 // hết lượt 2, không còn việc nền: đóng
+  });
+  const q = (t.runner as unknown as { deps: { query: (a: { prompt: AsyncIterable<unknown> }) => unknown } }).deps;
+  const orig = q.query;
+  q.query = (a) => {
+    void (async () => { for await (const m of a.prompt) seenInput.push(m); closedAtEnd = true; })();
+    return orig(a);
+  };
+  const r = await t.runner.start(input(t.project.id));
+  assert.ok(r.ok);
+  await new Promise((res) => setTimeout(res, 20));
+  const j = await t.runner.start({ ...input(t.project.id, r.conversationId!), prompt: "Câu hỏi chen" });
+  assert.equal(j.joined, true);
+  await new Promise((res) => setTimeout(res, 20));
+  assert.equal(closedAtEnd, false);
+  release();
+  await r.done;
+  await new Promise((res) => setTimeout(res, 20));
+  assert.equal(closedAtEnd, true);
+  assert.equal(seenInput.length, 2);
+  assert.equal((seenInput[1] as { priority?: string }).priority, "next");
+  assert.match(t.db.getTask(r.taskId!)!.stopReason ?? "", /Xong/);
 });

@@ -300,7 +300,7 @@ function registerIpc(db: HubDb, keys: KeyRing, runner: AgentRunner, skills: Skil
   h("startTask", async (input: StartTaskInput) => {
     if (browserWindowOpen) return { ok: false, message: "Trình duyệt của app đang mở để đăng nhập. Đóng cửa sổ đó rồi giao việc." };
     const r = await runner.start(input);
-    return { ok: r.ok, busy: r.busy, taskId: r.taskId, conversationId: r.conversationId, message: r.message };
+    return { ok: r.ok, busy: r.busy, joined: r.joined, taskId: r.taskId, conversationId: r.conversationId, message: r.message };
   });
   h("stopTask", (id: number) => runner.stop(Number(id)));
   h("answerPermission", (id: string, allow: boolean, always?: boolean) => runner.answerPermission(String(id), allow === true, always === true));

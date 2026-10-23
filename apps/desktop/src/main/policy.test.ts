@@ -41,12 +41,12 @@ test("symlink trong dự án trỏ ra ngoài: sửa qua link phải hỏi", () =
   assert.equal(decide("write", "Write", { file_path: `${dir}/link/x.txt` }, dir).decision, "ask");
 });
 
-test("AI phụ: chặn môi trường tách riêng ở chế độ đọc, ép không chạy nền", () => {
+test("AI phụ: chặn môi trường tách riêng ở chế độ đọc, cho chạy nền song song", () => {
   assert.equal(decide("read", "Agent", { prompt: "x", isolation: "worktree" }, dir).decision, "deny");
   assert.equal(decide("write", "Agent", { prompt: "x", isolation: "remote" }, dir).decision, "ask");
   const d = decide("write", "Agent", { prompt: "x", run_in_background: true }, dir);
   assert.equal(d.decision, "allow");
-  assert.equal(d.updatedInput?.run_in_background, false);
+  assert.equal(d.updatedInput, undefined);
 });
 
 test("cài đặt đổi máy chủ API hoặc nguồn khoá thì từ chối chạy", () => {

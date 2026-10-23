@@ -55,17 +55,40 @@ export function clipInput(input: unknown, max = 1500): string {
   return JSON.stringify(cut(input));
 }
 
-// Câu hỏi có ảnh: gửi một tin nhắn gồm các khối ảnh rồi khối chữ (chế độ nhập dạng luồng của Agent SDK).
-export function promptWithImages(text: string, images: ImageAttachment[]): AsyncIterable<SDKUserMessage> {
-  return (async function* () {
-    yield {
-      type: "user", parent_tool_use_id: null,
-      message: { role: "user", content: [
-        ...images.map((im) => ({ type: "image" as const, source: { type: "base64" as const, media_type: im.mediaType, data: im.data } })),
-        { type: "text" as const, text },
-      ] },
-    } as SDKUserMessage;
-  })();
+// Một tin nhắn của anh: các khối ảnh rồi khối chữ.
+export function userMessage(text: string, images: ImageAttachment[] = [], priority?: "next"): SDKUserMessage {
+  return {
+    type: "user", parent_tool_use_id: null, ...(priority ? { priority } : {}),
+    message: { role: "user", content: images.length ? [
+      ...images.map((im) => ({ type: "image" as const, source: { type: "base64" as const, media_type: im.mediaType, data: im.data } })),
+      { type: "text" as const, text },
+    ] : text },
+  } as SDKUserMessage;
+}
+
+// Luồng tin nhắn vào của một việc (chế độ nhập dạng luồng của Agent SDK): câu hỏi đầu, rồi các tin anh gửi thêm
+// khi AI đang làm (priority "next": AI đọc và trả lời ngay trong lượt đang chạy, không chờ xong việc).
+// Đóng luồng thì tiến trình agent kết thúc sau lượt hiện tại.
+export class InputChannel implements AsyncIterable<SDKUserMessage> {
+  private queue: SDKUserMessage[] = [];
+  private wake: (() => void) | null = null;
+  closed = false;
+  constructor(first: SDKUserMessage) { this.queue.push(first); }
+  push(m: SDKUserMessage): boolean {
+    if (this.closed) return false;
+    this.queue.push(m); this.wake?.();
+    return true;
+  }
+  close() { this.closed = true; this.wake?.(); }
+  async *[Symbol.asyncIterator]() {
+    for (;;) {
+      const m = this.queue.shift();
+      if (m) { yield m; continue; }
+      if (this.closed) return;
+      await new Promise<void>((r) => { this.wake = r; });
+      this.wake = null;
+    }
+  }
 }
 
 export interface AgentDeps {
@@ -137,10 +160,11 @@ interface Running {
   abort: AbortController;
   stopRequested: boolean;
   budgetHit: boolean;
+  input: InputChannel | null;   // luồng tin vào của lần chạy hiện tại (null: chưa mở)
 }
 
 // Số việc chạy cùng lúc tối đa (mỗi việc giữ trước phần hạn mức của mình).
-export const MAX_PARALLEL = 3;
+export const MAX_PARALLEL = 5;
 
 export class AgentRunner {
   private runs = new Map<number, Running>();
@@ -199,6 +223,7 @@ export class AgentRunner {
     const r = this.runs.get(taskId);
     if (!r) return;
     r.stopRequested = true;
+    r.input?.close();
     this.denyPending(taskId);
     try { await r.query.interrupt(); } catch { /* đã kết thúc */ }
     // Không dừng được êm trong 5 giây thì cắt hẳn tiến trình.
@@ -222,14 +247,41 @@ export class AgentRunner {
     });
   }
 
+  // Lưu ảnh đính kèm vào thư mục dữ liệu app (lịch sử ghi tên tệp). msgNo > 0: tin gửi thêm trong lúc việc chạy.
+  private saveImages(taskId: number, images: ImageAttachment[], msgNo: number): string[] {
+    if (!images.length || !this.deps.attachDir) return images.map((_, i) => `ảnh ${i + 1}`);
+    mkdirSync(this.deps.attachDir, { recursive: true });
+    return images.map((im, i) => {
+      const f = path.join(this.deps.attachDir!, `viec-${taskId}${msgNo ? `-tin${msgNo + 1}` : ""}-${i + 1}.${EXT[im.mediaType]}`);
+      writeFileSync(f, Buffer.from(im.data, "base64"));
+      return path.basename(f);
+    });
+  }
+
   // Bắt đầu một việc. Trả về ngay sau khi tạo việc; tiến trình chạy tiếp ở nền.
   // busy: không chạy được lúc này vì đang bận (đủ số việc, hội thoại đang chạy, đang kiểm key) — xếp hàng được.
-  async start(input: StartTaskInput): Promise<{ ok: boolean; busy?: boolean; taskId?: number; conversationId?: number; message?: string; done?: Promise<TaskRow> }> {
+  async start(input: StartTaskInput): Promise<{ ok: boolean; busy?: boolean; joined?: boolean; taskId?: number; conversationId?: number; message?: string; done?: Promise<TaskRow> }> {
     const { db } = this.deps;
     // Lấy mã truy cập các kết nối trước mọi kiểm tra (có thể cần gọi mạng để làm mới), để phần kiểm tra phía sau
     // và việc ghi nhận việc đang chạy không bị chen giữa.
     const connections = this.deps.connections ? await this.deps.connections.forTask() : { servers: {}, notes: [] as string[] };
     if (this.testing) return { ok: false, busy: true, message: "Đang kiểm tra API key, thử lại sau vài giây." };
+    // Hội thoại đang chạy: gửi thẳng vào lượt đang chạy, AI trả lời ngay (như Claude Code), việc đang làm và AI phụ vẫn chạy tiếp.
+    const live = input.conversationId != null ? [...this.runs.values()].find((r) => r.conversationId === input.conversationId) : undefined;
+    if (live?.input && !live.input.closed && !live.stopRequested && !live.budgetHit) {
+      const images = input.images ?? [];
+      const problem = checkImages(images);
+      if (problem) return { ok: false, message: problem };
+      const text = input.prompt.trim() || (images.length ? "Xem ảnh đính kèm." : "");
+      if (!text) return { ok: false, message: "Chưa nhập yêu cầu." };
+      const saved = this.saveImages(live.taskId, images, db.conversationItems(live.conversationId).filter((x) => x.taskId === live.taskId && x.kind === "user").length);
+      if (live.input.push(userMessage(text, images, "next"))) {
+        const it = db.addItem({ taskId: live.taskId, conversationId: live.conversationId, kind: "user",
+          text: images.length ? `${text}\n[Ảnh đính kèm: ${saved.join(", ")}]` : text });
+        this.deps.emit({ type: "item", item: it });
+        return { ok: true, joined: true, taskId: live.taskId, conversationId: live.conversationId };
+      }
+    }
     if (input.conversationId != null && [...this.runs.values()].some((r) => r.conversationId === input.conversationId)) {
       return { ok: false, busy: true, message: "Hội thoại này đang chạy. Chờ xong, bấm Dừng, hoặc mở hội thoại mới." };
     }
@@ -344,20 +396,12 @@ export class AgentRunner {
     });
 
     // Ảnh đính kèm lưu vào thư mục dữ liệu app để xem lại; lịch sử ghi tên tệp.
-    const saved: string[] = [];
-    if (images.length && this.deps.attachDir) {
-      mkdirSync(this.deps.attachDir, { recursive: true });
-      images.forEach((im, i) => {
-        const f = path.join(this.deps.attachDir!, `viec-${taskId}-${i + 1}.${EXT[im.mediaType]}`);
-        writeFileSync(f, Buffer.from(im.data, "base64"));
-        saved.push(path.basename(f));
-      });
-    }
+    const saved = this.saveImages(taskId, images, 0);
     const userItem = db.addItem({ taskId, conversationId: conv.id, kind: "user",
       text: images.length ? `${prompt}\n[Ảnh đính kèm: ${saved.length ? saved.join(", ") : `${images.length} ảnh`}]` : prompt });
     const notes = connections.notes.map((note) => db.addItem({ taskId, conversationId: conv.id, kind: "system", text: note }));
     const run: Running = { taskId, conversationId: conv.id, allowanceUsd: u.allowedUsd, usesBrowser: !!chrome,
-      query: null as unknown as Query, abort: new AbortController(), stopRequested: false, budgetHit: false };
+      query: null as unknown as Query, abort: new AbortController(), stopRequested: false, budgetHit: false, input: null };
     this.runs.set(taskId, run);
     this.deps.emit({ type: "task-started", taskId, conversationId: conv.id, allowanceUsd: u.allowedUsd });
     // Phát câu hỏi sau task-started để giao diện biết việc thuộc hội thoại nào (việc xếp hàng cũng hiện câu hỏi).
@@ -369,7 +413,9 @@ export class AgentRunner {
     const done = this.runWithKeys(taskId, convId, keys, u.allowedUsd, (key, spent) => {
       const abort = new AbortController();
       // Mỗi lần thử (mỗi key) tạo luồng câu hỏi mới: luồng chỉ đọc được một lần.
-      const q = this.deps.query({ prompt: images.length ? promptWithImages(prompt, images) : prompt, options: makeOptions(key.key, abort, u.allowedUsd - spent) });
+      const ch = new InputChannel(userMessage(prompt, images));
+      const q = this.deps.query({ prompt: ch, options: makeOptions(key.key, abort, u.allowedUsd - spent) });
+      run.input = ch;
       run.query = q;
       run.abort = abort;
       return { q, prevTotal, prevOk };
@@ -436,8 +482,23 @@ export class AgentRunner {
     let sideEffects = false;
     // Mỗi luồng (AI chính, từng AI phụ) một tin nhắn đang phát, để số token ra không lẫn khi chạy xen nhau.
     const streamMsg = new Map<string | null, { id: string; model: string }>();
+    // AI phụ/lệnh chạy nền: còn chạy thì giữ luồng tin vào mở (agent tự làm tiếp khi chúng xong); hết thì đóng.
+    const bg = new Set<string>();
+    let idle = false;
+    let idleTimer: NodeJS.Timeout | null = null;
+    const closeIfIdle = () => { if (idle && !bg.size) run.input?.close(); };
     try {
       for await (const m of q) {
+        if (m.type === "assistant") { idle = false; if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; } }
+        if (m.type === "system" && (m.subtype === "task_started" || m.subtype === "task_updated" || m.subtype === "task_notification")) {
+          if (m.subtype === "task_started" && m.is_backgrounded) bg.add(m.task_id);
+          else if (m.subtype === "task_updated" && m.patch.is_backgrounded) bg.add(m.task_id);
+          else if (m.subtype === "task_updated" && m.patch.status && m.patch.status !== "running" && m.patch.status !== "pending" && m.patch.status !== "paused") bg.delete(m.task_id);
+          else if (m.subtype === "task_notification") bg.delete(m.task_id);
+          // Việc nền vừa xong lúc đang rảnh: chờ agent làm tiếp; 60 giây không có gì mới thì đóng.
+          if (idle && !bg.size && !idleTimer) idleTimer = setTimeout(() => run.input?.close(), 60_000);
+          continue;
+        }
         if (m.type === "system" && m.subtype === "init") {
           if (m.apiKeySource !== "ANTHROPIC_API_KEY") {
             message = `Đã dừng: agent không chạy bằng API key (nguồn: ${m.apiKeySource}). Không dùng hạn mức gói Max.`;
@@ -472,7 +533,8 @@ export class AgentRunner {
             const t = totals();
             db.updateTask(taskId, { costUsd: spentBefore + attemptEstimate(), costIsEstimate: true, inputTokens: t.input, outputTokens: t.output,
               cacheReadTokens: t.cacheRead, cacheWriteTokens: t.cacheWrite });
-            emit({ type: "usage", taskId, costUsd: spentBefore + attemptEstimate(), costIsEstimate: true, inputTokens: t.input, outputTokens: t.output });
+            emit({ type: "usage", taskId, conversationId, costUsd: spentBefore + attemptEstimate(), costIsEstimate: true, inputTokens: t.input, outputTokens: t.output,
+              cacheTokens: t.cacheRead + t.cacheWrite });
             if (spentBefore + attemptEstimate() >= allowedUsd && !run.budgetHit) {
               run.budgetHit = true;
               item("system", `Chạm hạn mức việc này (${usd4(allowedUsd)}), đang dừng.`);
@@ -514,11 +576,17 @@ export class AgentRunner {
           else if (m.subtype === "success") message = `Xong. Chi phí ~${usd4(resultCost)}.`;
           else if (m.subtype === "error_max_budget_usd") message = `Dừng vì chạm hạn mức việc này. Chi phí ~${usd4(resultCost)}.`;
           else message = `Lỗi: ${m.subtype}. Chi phí ~${usd4(resultCost)}.`;
+          // Hết lượt: không còn việc nền thì đóng luồng tin vào để tiến trình kết thúc (tin anh gửi sau đó mở việc mới).
+          idle = true;
+          if (status !== "done") run.input?.close(); else closeIfIdle();
         }
       }
     } catch (err) {
       keyError = keyError ?? keyErrorReason(null, String(err));
       if (!message) message = `Lỗi khi chạy agent: ${clip(String(err), 500)}`;
+    } finally {
+      if (idleTimer) clearTimeout(idleTimer);
+      run.input?.close();
     }
 
     return { status, message, resultCost, keyError, sideEffects, estimate: attemptEstimate() };

@@ -29,7 +29,7 @@ type Entry =
 
 interface PermReq { requestId: string; taskId: number; toolName: string; summary: string; canAlways: boolean }
 interface Warn { percent: number; message: string }
-interface Usage { inputTokens: number; outputTokens: number; costUsd: number }
+interface Usage { inputTokens: number; outputTokens: number; cacheTokens: number; costUsd: number }
 
 let seq = 0;
 const nextKey = () => `k${++seq}`;
@@ -95,6 +95,7 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
   projectRef.current = projectId;
   convRef.current = convId;
 
+  const convsLoadedAt = useRef(0);
   const startedAt = useRef(new Map<number, number>());     // việc → lúc bắt đầu (đếm giờ chạy)
   const markRunning = (taskId: number, conversationId: number, on: boolean) => {
     if (on) { taskConv.current.set(taskId, conversationId); if (!startedAt.current.has(taskId)) startedAt.current.set(taskId, Date.now()); }
@@ -227,11 +228,15 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
             text: `${e.keyLabel} · Model ${e.model} · đã nạp ${e.skills.length} skills · CLAUDE.md: ${e.claudeMd ? "có" : "không"}`,
           }]);
           break;
-        case "usage":
+        case "usage": {
+          // Số tiền dưới tên hội thoại cập nhật trong lúc chạy (trước đây chỉ khi việc xong nên hiện 0.0000).
+          // Đọc lại từ cơ sở dữ liệu (đã ghi chi phí tạm trước sự kiện này), tối đa 3 giây một lần.
+          if (Date.now() - convsLoadedAt.current > 3000) { convsLoadedAt.current = Date.now(); loadConvs(projectRef.current).catch(() => {}); }
           if (!isShown(e.taskId)) break;
-          setUsage({ inputTokens: e.inputTokens, outputTokens: e.outputTokens, costUsd: e.costUsd });
+          setUsage({ inputTokens: e.inputTokens, outputTokens: e.outputTokens, cacheTokens: e.cacheTokens, costUsd: e.costUsd });
           setUsageEst(e.costIsEstimate);
           break;
+        }
         case "task-finished": {
           const conv = taskConv.current.get(e.task.id) ?? e.task.conversationId;
           drafts.current.delete(e.task.id);
@@ -265,6 +270,12 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
         return;
       }
       if (!r.ok) { setError(r.message ?? "Không gửi được."); return; }
+      if (r.joined) {
+        // Gửi thêm vào việc đang chạy: AI đọc ngay trong lượt đang làm (câu hỏi đã hiện qua sự kiện).
+        setPrompt("");
+        setImages([]);
+        return;
+      }
       setPrompt("");
       setImages([]);
       setUsage(null);
@@ -415,7 +426,7 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
               }}
             />
             <div className="col">
-              <button className="primary" disabled={!hasKey || noProject || (!prompt.trim() && !images.length)} onClick={send}>{running ? "Xếp hàng" : "Gửi"}</button>
+              <button className="primary" disabled={!hasKey || noProject || (!prompt.trim() && !images.length)} onClick={send}>{running ? "Gửi thêm" : "Gửi"}</button>
               <button title="Đính kèm ảnh (hoặc dán Ctrl+V, kéo thả vào ô chat)" disabled={images.length >= MAX_IMAGES} onClick={() => fileRef.current?.click()}>Ảnh</button>
               <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden
                 onChange={(e) => { void addFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
@@ -424,7 +435,7 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
           </div>
           <div className="footer-line muted small">
             {usage
-              ? `Token vào/ra ${usage.inputTokens} / ${usage.outputTokens} · Chi phí ${usageEst ? "~" : ""}${usd(usage.costUsd)} USD (ước tính)`
+              ? `Token vào ${num(usage.inputTokens + usage.cacheTokens)} (đọc lại từ bộ nhớ đệm ${num(usage.cacheTokens)}) · ra ${num(usage.outputTokens)} · Chi phí việc này ${usageEst ? "~" : ""}${usd(usage.costUsd)} USD${usageEst ? " (ước tính, chốt khi xong)" : ""}`
               : running ? "Đang chạy…" : "Chưa có số liệu cho việc này."}
           </div>
         </section>
@@ -478,3 +489,5 @@ function RunStatus({ taskId, entries, waiting, since }: { taskId: number; entrie
     </div>
   );
 }
+
+const num = (n: number) => n.toLocaleString("vi-VN");

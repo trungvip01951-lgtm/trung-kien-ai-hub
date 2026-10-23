@@ -119,7 +119,7 @@ export type HubEvent =
   | { type: "session"; taskId: number; sessionId: string; model: string; skills: string[]; tools: string[]; claudeMd: boolean; keyLabel: string }
   | { type: "text-delta"; taskId: number; text: string }
   | { type: "item"; item: ChatItem }
-  | { type: "usage"; taskId: number; costUsd: number; costIsEstimate: boolean; inputTokens: number; outputTokens: number }
+  | { type: "usage"; taskId: number; conversationId: number; costUsd: number; costIsEstimate: boolean; inputTokens: number; outputTokens: number; cacheTokens: number }
   | { type: "permission-request"; requestId: string; taskId: number; toolName: string; summary: string; canAlways: boolean }
   // Yêu cầu đã được trả lời tự động (cùng loại vừa "Đồng ý luôn", hoặc việc đã dừng): giao diện gỡ hộp hỏi.
   | { type: "permission-resolved"; requestIds: string[] }
@@ -231,7 +231,7 @@ export interface HubApi {
   conversationItems(conversationId: number): Promise<ChatItem[]>;
   search(query: string): Promise<SearchHit[]>;
 
-  startTask(input: StartTaskInput): Promise<{ ok: boolean; busy?: boolean; taskId?: number; conversationId?: number; message?: string }>;
+  startTask(input: StartTaskInput): Promise<{ ok: boolean; busy?: boolean; joined?: boolean; taskId?: number; conversationId?: number; message?: string }>;
   stopTask(taskId: number): Promise<void>;
   answerPermission(requestId: string, allow: boolean, always?: boolean): Promise<void>;   // always: "Đồng ý luôn" trong hội thoại này
   runningTaskId(): Promise<number | null>;

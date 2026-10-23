@@ -54,7 +54,7 @@ export function TasksPage() {
           </div>
         );
       })}
-      <div className="muted small">Chạy tối đa 3 việc cùng lúc; mỗi việc giữ trước phần hạn mức của nó để tổng không vượt hạn mức ngày/kỳ.</div>
+      <div className="muted small">Chạy tối đa 5 hội thoại cùng lúc (trong mỗi việc, AI chính còn chia việc cho nhiều AI phụ chạy song song); mỗi việc giữ trước phần hạn mức của nó để tổng không vượt hạn mức ngày/kỳ.</div>
 
       <h2>Hàng đợi {waiting.length > 0 && `(${waiting.length} việc đang chờ)`}</h2>
       {queue.length === 0 ? <div className="card muted">Trống. Gửi việc khi đang bận, hoặc việc theo lịch, sẽ vào đây và tự chạy khi có chỗ.</div> : (

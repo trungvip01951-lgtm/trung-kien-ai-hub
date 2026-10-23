@@ -100,7 +100,7 @@ export function CostPage({ settings, onSettings }: { settings: Settings | null; 
               <td>{fmtDate(t.createdAt)}</td>
               <td>{t.model}</td>
               <td>{STATUS_LABEL[t.status]}</td>
-              <td>{t.inputTokens} / {t.outputTokens}</td>
+              <td>{(t.inputTokens + t.cacheReadTokens + t.cacheWriteTokens).toLocaleString("vi-VN")} / {t.outputTokens.toLocaleString("vi-VN")}</td>
               <td>{t.costIsEstimate ? "~" : ""}{usd(t.costUsd)}</td>
             </tr>
           ))}
