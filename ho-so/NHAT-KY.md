@@ -89,3 +89,6 @@ Mục mới nối xuống cuối. Mỗi mục: `## dd/mm/yyyy hh:mm — <tên AI
   - **Ảnh**: nhận loại ảnh theo nội dung (ảnh Zalo đuôi .jpg thật ra là webp không còn bị API từ chối), giới hạn 3,7 MB mỗi ảnh theo giới hạn API.
 - Rà soát độc lập (AI phụ Opus) 14 mục: sửa 13; mục 13 (lời dặn preset tự giới thiệu "Claude Code") xử lý bằng câu dặn không tự xưng. Đáng chú ý nhất đã sửa: "Đồng ý luôn" cho `cmd /c …`, `powershell -Command …`, `bash -c …`, `python -m …` từng mở rộng sang lệnh khác (ví dụ xoá thư mục) — nay chỉ đúng nguyên lệnh.
 - Kiểm: 77 test (thêm 5), kiểm tra khói 8/8, giao diện chạy bằng Chromium với dữ liệu giả: 3 bước chạy cùng lúc ghép đúng kết quả, tệp ghi dài có thẻ Mở, liên kết `D:/Bao%20cao/x.xlsx` và đường dẫn có dấu cách mở được, `0.3.308` không thành chỗ bấm, 0 lỗi trang. Chạy với API thật và mở tệp trên Windows thật CHƯA THỂ XÁC MINH trên cloud.
+
+## 23/10/2026 13:20 — Claude-1
+- Anh Trung nối lại GitHub; đẩy bản 0.6.0 lên. CI "Build Windows" xanh (https://github.com/trungvip01951-lgtm/trung-kien-ai-hub/actions/runs/39910053924), đăng Release v0.6.0 lúc 13:16.
