@@ -60,6 +60,9 @@ test("xem trang luôn được; cookie, bộ nhớ trang, mã tuỳ ý bị ch�
   // Tên tệp tự đặt tính từ thư mục dự án: chặn để không ghi đè tệp dự án.
   assert.equal(decideBrowser(s, t("browser_take_screenshot"), { filename: ".git/hooks/pre-commit" }, at(null)).decision, "deny");
   assert.equal(decideBrowser(s, t("browser_evaluate"), { function: "() => 1" }, at("https://mau-a.vn/")).decision, "ask");
+  // Đủ quyền: không hỏi gì (anh Trung chốt 23/10/2026); cookie, bộ nhớ trang vẫn chặn.
+  assert.equal(decideBrowser(s, t("browser_evaluate"), { function: "() => 1" }, at("https://mau-a.vn/"), false, true).decision, "allow");
+  assert.equal(decideBrowser(s, t("browser_cookie_list"), {}, at("https://mau-a.vn/"), false, true).decision, "deny");
   assert.equal(decideBrowser(s, t("browser_tabs"), { action: "new", url: "https://la.com/" }, at(null)).decision, "ask");
   assert.equal(decideBrowser(s, t("webmcp_xoa_don"), {}, at("https://mau-a.vn/"), true).decision, "deny");
 });

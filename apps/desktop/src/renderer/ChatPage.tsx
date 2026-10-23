@@ -350,7 +350,12 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
               </select>
             </label>
             <label>Quyền
-              <select value={permission} onChange={(e) => setPermission(e.target.value as PermissionLevel)}>
+              <select value={permission} onChange={(e) => {
+                const v = e.target.value as PermissionLevel;
+                setPermission(v);
+                // Việc đang chạy đổi mức quyền ngay (lên Đủ quyền thì các câu đang hỏi được tự đồng ý).
+                if (taskId !== null) void window.hub.setTaskPermission(taskId, v);
+              }}>
                 {PERMISSIONS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
               </select>
             </label>

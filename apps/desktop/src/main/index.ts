@@ -23,6 +23,7 @@ import { mergeSpecialists, toAgentDefinitions } from "./specialists";
 import type { SpecialistInfo } from "../shared/contract";
 import { claudeExecutablePath, playwrightMcpCliPath } from "./sdk-path";
 import { profilePaths } from "./chrome";
+import { BrowserServer } from "./browser-server";
 import { runSmokeTest } from "./smoke";
 import { checkUpdateNow, installUpdate, startUpdater } from "./updater";
 
@@ -32,6 +33,7 @@ const outArg = process.argv.find((a) => a.startsWith("--smoke-out="));
 let win: BrowserWindow | null = null;
 // Việc nào xong (kể cả việc gửi thẳng từ chat) thì cho hàng đợi chạy tiếp ngay, không chờ nhịp 30 giây.
 let afterTask: () => void = () => undefined;
+let stopBrowserServer: () => void = () => undefined;
 const emit = (e: HubEvent) => {
   win?.webContents.send("hub-event", e);
   if (e.type === "task-finished") setImmediate(() => afterTask());
@@ -91,6 +93,8 @@ async function openBrowserProfile(db: HubDb, runner: AgentRunner, dataDir: strin
   const exe = installedBrowserPath(s.browser);
   if (!exe) return { ok: false, message: `Không thấy ${name} trên máy. Cài ${name} hoặc đổi trình duyệt trong mục Chrome.` };
   const { profileDir } = profilePaths(dataDir);
+  // Trình duyệt riêng của app có thể đang mở (máy chủ dùng chung): đóng trước, vì hai trình duyệt không dùng chung một hồ sơ được.
+  stopBrowserServer();
   // Đặt cờ trước khi mở để không có việc nào chen vào dùng cùng hồ sơ; tắt cửa sổ thì nhả.
   browserWindowOpen = true;
   try {
@@ -303,6 +307,9 @@ function registerIpc(db: HubDb, keys: KeyRing, runner: AgentRunner, skills: Skil
     return { ok: r.ok, busy: r.busy, joined: r.joined, taskId: r.taskId, conversationId: r.conversationId, message: r.message };
   });
   h("stopTask", (id: number) => runner.stop(Number(id)));
+  h("setTaskPermission", (id: number, level: string) => {
+    if (level === "read" || level === "write" || level === "full") runner.setLevel(Number(id), level);
+  });
   h("answerPermission", (id: string, allow: boolean, always?: boolean) => runner.answerPermission(String(id), allow === true, always === true));
   h("runningTaskId", () => runner.runningTaskId());
   h("checkUpdate", () => checkUpdateNow());
@@ -363,9 +370,13 @@ async function startApp() {
   const conns = new Connections(path.join(dataDir, "connections.json"), path.join(dataDir, "connections.bin"), cipher,
     (url) => openLoginPage(url, db.getSettings().chrome.browser));
   const ext = new ExtensionToken(path.join(dataDir, "chrome-extension-token.bin"), cipher);
+  const chromePaths = { nodeBinary: process.execPath, cliPath: playwrightMcpCliPath(), ...profilePaths(dataDir), extensionToken: () => ext.get() };
+  const browserServer = new BrowserServer(chromePaths);
+  stopBrowserServer = () => browserServer.stop();
+  app.on("will-quit", () => browserServer.stop());
   const runner = new AgentRunner({
     db, query, emit, keys, skills, claudePath: claudeExecutablePath(), appVersion: app.getVersion(), attachDir: path.join(dataDir, "attachments"),
-    chrome: { nodeBinary: process.execPath, cliPath: playwrightMcpCliPath(), ...profilePaths(dataDir), extensionToken: () => ext.get() },
+    chrome: chromePaths, browserServer,
     connections: conns,
     specialists: () => toAgentDefinitions(mergeSpecialists(db.getJson<SpecialistInfo[]>("specialists"))),
     memory: db,

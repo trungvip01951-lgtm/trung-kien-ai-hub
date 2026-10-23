@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { CanUseTool, HookCallback, Options, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { HubEvent, ImageAttachment, ModelId, StartTaskInput, TaskRow, TaskStatus } from "../shared/contract";
+import type { ChromeSettings, HubEvent, ImageAttachment, ModelId, StartTaskInput, TaskRow, TaskStatus } from "../shared/contract";
 import { allowance, crossedWarning, cycleStart, dayStart, SDK_HEADROOM } from "./budget";
 import type { HubDb } from "./db";
 import { alwaysKey, decide, summarizeInput } from "./policy";
@@ -73,9 +73,11 @@ export class InputChannel implements AsyncIterable<SDKUserMessage> {
   private queue: SDKUserMessage[] = [];
   private wake: (() => void) | null = null;
   closed = false;
+  pushed = 0;   // số tin gửi thêm (ngoài câu hỏi đầu)
   constructor(first: SDKUserMessage) { this.queue.push(first); }
   push(m: SDKUserMessage): boolean {
     if (this.closed) return false;
+    this.pushed++;
     this.queue.push(m); this.wake?.();
     return true;
   }
@@ -103,6 +105,8 @@ export interface AgentDeps {
   skills?: { pluginPath(): string | null; readableRoot(): string };
   // Điều khiển trình duyệt (Playwright MCP); không có thì không nạp công cụ trình duyệt.
   chrome?: ChromePaths;
+  // Máy chủ trình duyệt dùng chung giữa các việc (trình duyệt không tắt khi việc xong); không có thì mỗi việc một máy chủ.
+  browserServer?: { config(s: ChromeSettings): Promise<McpServerConfig> };
   // AI chuyên môn đang bật (mục Agents) và bộ nhớ dài hạn.
   specialists?: () => Record<string, AgentDefinition>;
   memory?: MemoryStore;
@@ -161,6 +165,7 @@ interface Running {
   stopRequested: boolean;
   budgetHit: boolean;
   input: InputChannel | null;   // luồng tin vào của lần chạy hiện tại (null: chưa mở)
+  level: StartTaskInput["permission"];
 }
 
 // Số việc chạy cùng lúc tối đa (mỗi việc giữ trước phần hạn mức của mình).
@@ -219,6 +224,17 @@ export class AgentRunner {
     return conv != null && (this.alwaysAllow.get(conv)?.has(key) ?? false);
   }
 
+  // Đổi mức quyền của việc đang chạy (anh đổi ô Quyền trong lúc AI làm). Lên Đủ quyền thì các câu đang hỏi được tự đồng ý.
+  setLevel(taskId: number, level: StartTaskInput["permission"]) {
+    const r = this.runs.get(taskId);
+    if (!r) return;
+    r.level = level;
+    if (level !== "full") return;
+    const ids: string[] = [];
+    for (const [id, p] of this.pending) if (p.taskId === taskId) { this.pending.delete(id); p.resolve(true); ids.push(id); }
+    if (ids.length) this.deps.emit({ type: "permission-resolved", requestIds: ids });
+  }
+
   async stop(taskId: number) {
     const r = this.runs.get(taskId);
     if (!r) return;
@@ -265,6 +281,14 @@ export class AgentRunner {
     // Lấy mã truy cập các kết nối trước mọi kiểm tra (có thể cần gọi mạng để làm mới), để phần kiểm tra phía sau
     // và việc ghi nhận việc đang chạy không bị chen giữa.
     const connections = this.deps.connections ? await this.deps.connections.forTask() : { servers: {}, notes: [] as string[] };
+    // Mở sẵn máy chủ trình duyệt dùng chung (cũng trước mọi kiểm tra, vì có thể mất vài giây).
+    const cs = this.deps.db.getSettings().chrome;
+    let browserCfg: McpServerConfig | null = null;
+    let browserErr = "";
+    if (cs.enabled && this.deps.chrome) {
+      try { browserCfg = this.deps.browserServer ? await this.deps.browserServer.config(cs) : chromeServerConfig(cs, this.deps.chrome); }
+      catch (err) { browserErr = `Không mở được trình duyệt: ${clip(String(err instanceof Error ? err.message : err), 200)}`; }
+    }
     if (this.testing) return { ok: false, busy: true, message: "Đang kiểm tra API key, thử lại sau vài giây." };
     // Hội thoại đang chạy: gửi thẳng vào lượt đang chạy, AI trả lời ngay (như Claude Code), việc đang làm và AI phụ vẫn chạy tiếp.
     const live = input.conversationId != null ? [...this.runs.values()].find((r) => r.conversationId === input.conversationId) : undefined;
@@ -276,6 +300,7 @@ export class AgentRunner {
       if (!text) return { ok: false, message: "Chưa nhập yêu cầu." };
       const saved = this.saveImages(live.taskId, images, db.conversationItems(live.conversationId).filter((x) => x.taskId === live.taskId && x.kind === "user").length);
       if (live.input.push(userMessage(text, images, "next"))) {
+        this.setLevel(live.taskId, input.permission);
         const it = db.addItem({ taskId: live.taskId, conversationId: live.conversationId, kind: "user",
           text: images.length ? `${text}\n[Ảnh đính kèm: ${saved.join(", ")}]` : text });
         this.deps.emit({ type: "item", item: it });
@@ -307,15 +332,16 @@ export class AgentRunner {
     if (!conv) conv = db.getConversation(db.createConversation(project.id, clip(prompt.replace(/\s+/g, " "), 60)).id)!;
 
     const taskId = db.createTask({ conversationId: conv.id, prompt, model: input.model, effort: input.effort, permission: input.permission, allowanceUsd: u.allowedUsd });
-    const level = input.permission;
+    // Mức quyền đọc lúc dùng (anh đổi mức quyền khi việc đang chạy thì áp ngay).
+    const lv = () => this.runs.get(taskId)?.level ?? input.permission;
     const extraRead = [...(this.deps.skills ? [this.deps.skills.readableRoot()] : []), ...(this.deps.chrome ? [this.deps.chrome.outputDir] : [])];
     const pluginPath = this.deps.skills?.pluginPath() ?? null;
     const settings = db.getSettings();
     const autoRouting = settings.autoRouting;
     // Trình duyệt chỉ một việc dùng một lúc (một hồ sơ/một kết nối); việc khác chạy song song thì không có trình duyệt.
     const browserBusy = [...this.runs.values()].find((r) => r.usesBrowser);
-    const chrome = settings.chrome.enabled && this.deps.chrome && !browserBusy ? settings.chrome : null;
-    const noBrowser = !settings.chrome.enabled || !this.deps.chrome ? "Điều khiển trình duyệt đang tắt (mục Chrome)."
+    const chrome = settings.chrome.enabled && this.deps.chrome && browserCfg && !browserBusy ? settings.chrome : null;
+    const noBrowser = browserErr ? browserErr : !settings.chrome.enabled || !this.deps.chrome ? "Điều khiển trình duyệt đang tắt (mục Chrome)."
       : `Trình duyệt đang được việc #${browserBusy?.taskId} dùng. Chờ việc đó xong rồi giao lại phần cần trình duyệt.`;
     // Dự án viết quy tắc ở AGENTS.md (agent chỉ tự nạp CLAUDE.md): nhắc đọc trước khi làm.
     const agentsMd = existsSync(path.join(project.path, "AGENTS.md"))
@@ -325,13 +351,13 @@ export class AgentRunner {
     const agents = { ...(autoRouting ? ROUTED_AGENTS : {}), ...(this.deps.specialists?.() ?? {}) };
     // Trang đang mở trong trình duyệt của app (lấy từ kết quả công cụ) để áp quyền theo website.
     const browser = newBrowserState();
-    const decideTool = (toolName: string, toolInput: unknown) => (isBrowserTool(toolName)
+    const decideTool = (toolName: string, toolInput: unknown) => { const level = lv(); return (isBrowserTool(toolName)
       ? (chrome ? decideBrowser(chrome, toolName, toolInput, browser, level === "read", level === "full") : { decision: "deny" as const, reason: noBrowser })
       : toolName.startsWith(`mcp__${MEMORY_SERVER}__`) ? decideMemory(toolName.slice(MEMORY_SERVER.length + 7), toolInput, level)
       : toolName.startsWith(`mcp__${WIN_SERVER}__`) ? decideWindows(toolName.slice(WIN_SERVER.length + 7), level, toolInput)
       : toolName.startsWith(`mcp__${OFFICE_SERVER}__`) ? decideOffice(toolName.slice(OFFICE_SERVER.length + 7), toolInput, level, project.path)
       : this.deps.connections?.owns(toolName) ? this.deps.connections.decide(toolName, level, toolInput)
-      : decide(level, toolName, toolInput, project.path, extraRead));
+      : decide(level, toolName, toolInput, project.path, extraRead)); };
     // Khoá cho nút "Đồng ý luôn" (null = không cho). Trình duyệt: mở trang theo tên miền đích, thao tác theo tên miền trang đang mở.
     const askKey = (toolName: string, toolInput: unknown, d: Decision): string | null => {
       if (d.noAlways) return null;
@@ -387,7 +413,7 @@ export class AgentRunner {
       pathToClaudeCodeExecutable: this.deps.claudePath,
       hooks: { PreToolUse: [{ hooks: [preToolUse], timeout: HOOK_TIMEOUT_S }], PostToolUse: [{ hooks: [postToolUse] }] },
       ...(chrome || Object.keys(connections.servers).length || this.deps.local
-        ? { mcpServers: { ...connections.servers, ...localServers(), ...(chrome ? { [CHROME_SERVER]: chromeServerConfig(chrome, this.deps.chrome!) } : {}) } } : {}),
+        ? { mcpServers: { ...connections.servers, ...localServers(), ...(chrome && browserCfg ? { [CHROME_SERVER]: browserCfg } : {}) } } : {}),
       canUseTool,
       ...(pluginPath ? { plugins: [{ type: "local" as const, path: pluginPath, skipMcpDiscovery: true }] } : {}),
       ...(Object.keys(agents).length ? { agents } : {}),
@@ -401,7 +427,7 @@ export class AgentRunner {
       text: images.length ? `${prompt}\n[Ảnh đính kèm: ${saved.length ? saved.join(", ") : `${images.length} ảnh`}]` : prompt });
     const notes = connections.notes.map((note) => db.addItem({ taskId, conversationId: conv.id, kind: "system", text: note }));
     const run: Running = { taskId, conversationId: conv.id, allowanceUsd: u.allowedUsd, usesBrowser: !!chrome,
-      query: null as unknown as Query, abort: new AbortController(), stopRequested: false, budgetHit: false, input: null };
+      query: null as unknown as Query, abort: new AbortController(), stopRequested: false, budgetHit: false, input: null, level: input.permission };
     this.runs.set(taskId, run);
     this.deps.emit({ type: "task-started", taskId, conversationId: conv.id, allowanceUsd: u.allowedUsd });
     // Phát câu hỏi sau task-started để giao diện biết việc thuộc hội thoại nào (việc xếp hàng cũng hiện câu hỏi).
@@ -482,21 +508,32 @@ export class AgentRunner {
     let sideEffects = false;
     // Mỗi luồng (AI chính, từng AI phụ) một tin nhắn đang phát, để số token ra không lẫn khi chạy xen nhau.
     const streamMsg = new Map<string | null, { id: string; model: string }>();
-    // AI phụ/lệnh chạy nền: còn chạy thì giữ luồng tin vào mở (agent tự làm tiếp khi chúng xong); hết thì đóng.
+    // AI phụ chạy nền: còn chạy thì giữ luồng tin vào mở (agent tự làm tiếp khi chúng xong); hết thì đóng.
+    // Chỉ tính AI phụ (local_agent): lệnh chạy nền (ví dụ máy chủ thử) có thể chạy mãi, không giữ việc mở vì nó.
+    // Dù AI phụ chưa xong, hết lượt quá 30 phút không có gì mới thì cũng đóng (không để việc treo, giữ hạn mức mãi).
+    const agentIds = new Set<string>();
+    let hadAnswer = false;
     const bg = new Set<string>();
     let idle = false;
     let idleTimer: NodeJS.Timeout | null = null;
-    const closeIfIdle = () => { if (idle && !bg.size) run.input?.close(); };
+    let capTimer: NodeJS.Timeout | null = null;
+    const clearTimers = () => { if (idleTimer) clearTimeout(idleTimer); if (capTimer) clearTimeout(capTimer); idleTimer = capTimer = null; };
+    const closeIfIdle = () => {
+      if (!idle) return;
+      if (!bg.size) run.input?.close();
+      else if (!capTimer) capTimer = setTimeout(() => run.input?.close(), 30 * 60_000);
+    };
     try {
       for await (const m of q) {
-        if (m.type === "assistant") { idle = false; if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; } }
+        if (m.type === "assistant" || m.type === "stream_event") { idle = false; clearTimers(); }
         if (m.type === "system" && (m.subtype === "task_started" || m.subtype === "task_updated" || m.subtype === "task_notification")) {
-          if (m.subtype === "task_started" && m.is_backgrounded) bg.add(m.task_id);
-          else if (m.subtype === "task_updated" && m.patch.is_backgrounded) bg.add(m.task_id);
+          if (m.subtype === "task_started" && (m.task_type === "local_agent" || m.subagent_type !== undefined)) agentIds.add(m.task_id);
+          if (m.subtype === "task_started" && m.is_backgrounded && agentIds.has(m.task_id)) bg.add(m.task_id);
+          else if (m.subtype === "task_updated" && m.patch.is_backgrounded && agentIds.has(m.task_id)) bg.add(m.task_id);
           else if (m.subtype === "task_updated" && m.patch.status && m.patch.status !== "running" && m.patch.status !== "pending" && m.patch.status !== "paused") bg.delete(m.task_id);
           else if (m.subtype === "task_notification") bg.delete(m.task_id);
           // Việc nền vừa xong lúc đang rảnh: chờ agent làm tiếp; 60 giây không có gì mới thì đóng.
-          if (idle && !bg.size && !idleTimer) idleTimer = setTimeout(() => run.input?.close(), 60_000);
+          if (idle && !bg.size && !idleTimer) { if (capTimer) { clearTimeout(capTimer); capTimer = null; } idleTimer = setTimeout(() => run.input?.close(), 60_000); }
           continue;
         }
         if (m.type === "system" && m.subtype === "init") {
@@ -576,6 +613,7 @@ export class AgentRunner {
           else if (m.subtype === "success") message = `Xong. Chi phí ~${usd4(resultCost)}.`;
           else if (m.subtype === "error_max_budget_usd") message = `Dừng vì chạm hạn mức việc này. Chi phí ~${usd4(resultCost)}.`;
           else message = `Lỗi: ${m.subtype}. Chi phí ~${usd4(resultCost)}.`;
+          if (status === "done") hadAnswer = true;
           // Hết lượt: không còn việc nền thì đóng luồng tin vào để tiến trình kết thúc (tin anh gửi sau đó mở việc mới).
           idle = true;
           if (status !== "done") run.input?.close(); else closeIfIdle();
@@ -585,10 +623,13 @@ export class AgentRunner {
       keyError = keyError ?? keyErrorReason(null, String(err));
       if (!message) message = `Lỗi khi chạy agent: ${clip(String(err), 500)}`;
     } finally {
-      if (idleTimer) clearTimeout(idleTimer);
+      clearTimers();
       run.input?.close();
     }
 
+    // Đã có lượt trả lời xong hoặc anh đã gửi thêm tin: lỗi key sau đó không tự chạy lại bằng key khác
+    // (chạy lại chỉ có câu hỏi đầu: lặp câu trả lời, mất tin gửi thêm).
+    if (hadAnswer || (run.input?.pushed ?? 0) > 0) sideEffects = true;
     return { status, message, resultCost, keyError, sideEffects, estimate: attemptEstimate() };
   }
 

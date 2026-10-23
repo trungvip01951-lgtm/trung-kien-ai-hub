@@ -198,6 +198,7 @@ export interface HubApi {
   setConnectionEnabled(id: string, enabled: boolean): Promise<void>;
   setConnectionClient(id: string, clientId: string, clientSecret: string): Promise<{ ok: boolean; message: string }>;
   importGoogleClient(id: string): Promise<{ ok: boolean; message: string }>;
+  setTaskPermission(taskId: number, level: PermissionLevel): Promise<void>;
   loginConnection(id: string): Promise<{ ok: boolean; message: string }>;   // mở trình duyệt mặc định để đăng nhập
   logoutConnection(id: string): Promise<void>;
   // Mã ghép nối tiện ích Playwright Extension (để khỏi phải bấm đồng ý mỗi lần); lưu mã hoá.

@@ -140,9 +140,11 @@ export function decideBrowser(s: ChromeSettings, toolName: string, input: unknow
   // Tên tệp tự đặt được tính từ thư mục dự án (ghi đè được tệp dự án): không cho, để app tự lưu vào thư mục của app.
   if (i.filename !== undefined) return { decision: "deny", reason: "Không đặt tên tệp; ảnh và snapshot tự lưu vào thư mục của app." };
   if (BLOCKED.test(t)) return { decision: "deny", reason: "Không cho đọc/sửa cookie, bộ nhớ trang, mạng hoặc chạy mã Playwright tuỳ ý." };
-  // Chạy mã trên trang đọc được cookie/bộ nhớ trang: luôn hỏi, kể cả Đủ quyền (yêu cầu gốc: không lấy cookie/token).
+  // Chạy mã trên trang đọc được cookie/bộ nhớ trang: hỏi, trừ Đủ quyền (anh Trung chốt 23/10/2026: Đủ quyền không hỏi gì).
+  // Công cụ đọc/sửa cookie, bộ nhớ trang vẫn bị chặn ở trên.
   if (t === "browser_evaluate") {
     return readOnly ? { decision: "deny", reason: "Chế độ Chỉ đọc: không chạy mã trên trang." }
+      : full ? { decision: "allow", reason: "Đủ quyền" }
       : { decision: "ask", reason: "Chạy mã JavaScript trên trang (có thể đọc cookie, dữ liệu trang)", noAlways: true };
   }
   if (full) return { decision: "allow", reason: "Đủ quyền" };

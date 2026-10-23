@@ -441,7 +441,8 @@ test("gửi thêm khi đang chạy: tin vào lượt đang chạy; còn AI phụ
   const sys = (o: object) => ({ type: "system", session_id: "phien-1", ...o }) as unknown as SDKMessage;
   const t = setup(async function* () {
     yield init();
-    yield sys({ subtype: "task_started", task_id: "nen-1", description: "AI phụ", is_backgrounded: true });
+    yield sys({ subtype: "task_started", task_id: "nen-1", description: "AI phụ", is_backgrounded: true, task_type: "local_agent" });
+    yield sys({ subtype: "task_started", task_id: "lenh-nen", description: "npm run dev", is_backgrounded: true, task_type: "local_bash" });  // lệnh chạy mãi: không giữ việc mở
     yield result(0.01);                 // hết lượt 1 nhưng AI phụ còn chạy: chưa đóng
     await gate;
     yield sys({ subtype: "task_notification", task_id: "nen-1", status: "completed", output_file: "", summary: "xong" });
@@ -468,4 +469,27 @@ test("gửi thêm khi đang chạy: tin vào lượt đang chạy; còn AI phụ
   assert.equal(seenInput.length, 2);
   assert.equal((seenInput[1] as { priority?: string }).priority, "next");
   assert.match(t.db.getTask(r.taskId!)!.stopReason ?? "", /Xong/);
+});
+
+test("đổi sang Đủ quyền khi việc đang chạy: câu đang hỏi tự được đồng ý, thao tác sau không hỏi", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const answers: string[] = [];
+  const t = setup(async function* (opts) {
+    yield init();
+    const ask = await opts.canUseTool!("Bash", { command: "rm -rf build" }, { signal: new AbortController().signal } as never);
+    answers.push(ask?.behavior ?? "");
+    await gate;
+    const again = await opts.canUseTool!("Bash", { command: "rm -rf dist" }, { signal: new AbortController().signal } as never);
+    answers.push(again?.behavior ?? "");
+    yield result(0.001);
+  });
+  const r = await t.runner.start(input(t.project.id));
+  await new Promise((res) => setTimeout(res, 20));
+  assert.ok(t.events.some((e) => e.type === "permission-request"));
+  t.runner.setLevel(r.taskId!, "full");
+  release();
+  await r.done;
+  assert.deepEqual(answers, ["allow", "allow"]);
+  assert.ok(t.events.some((e) => e.type === "permission-resolved"));
 });

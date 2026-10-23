@@ -36,6 +36,7 @@ const api: HubApi = {
   removeConnection: call("removeConnection") as HubApi["removeConnection"],
   setConnectionEnabled: call("setConnectionEnabled") as HubApi["setConnectionEnabled"],
   setConnectionClient: call("setConnectionClient") as HubApi["setConnectionClient"],
+  setTaskPermission: call("setTaskPermission") as HubApi["setTaskPermission"],
   importGoogleClient: call("importGoogleClient") as HubApi["importGoogleClient"],
   loginConnection: call("loginConnection") as HubApi["loginConnection"],
   logoutConnection: call("logoutConnection") as HubApi["logoutConnection"],

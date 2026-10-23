@@ -99,3 +99,17 @@ Nghĩa: không báo tiến độ giữa chừng; chỉ báo khi xong để anh c
 
 ## 23/10/2026 — phiên Claude Code (web)
 > trong khung chát có thể hiện rõ là đang chạy hay đang làm việc gì để a còn biết nhé
+
+## 23/10/2026 — phiên Claude Code (web), kèm ảnh cột hội thoại hiện 0.0000 USD khi đang chạy
+> đo usd mỗi phiên có vẻ đang lỗi
+
+## 23/10/2026 — phiên Claude Code (web)
+> app cũng có chế độ gửi là sẽ trả lời luôn như trong claude k đợi song việc mới trả lời nếu k liên quan thì các việc đc chia nhiều AI chạy song song vẫn chạy bình thường. có thể cho nhiều AI chạy song song và làm việc cùng lúc nhé
+
+## 23/10/2026 — phiên Claude Code (web)
+> chome mới bật lên lại tự tắt hãy cài tự tắt nếu 5p ko làm gì.
+> việc xin quyền vẫn hỏi rất nhiều xử lý dứt điểm cho a mặc dù a để chế độ đủ quyền k hỏi nhưng vẫn hỏi rất nhiều
+- Áp dụng: ở Đủ quyền, chạy mã JavaScript trên trang (browser_evaluate) cũng không hỏi nữa (trước đây luôn hỏi). Công cụ đọc/sửa cookie, bộ nhớ trang vẫn chặn.
+
+## 23/10/2026 — phiên Claude Code (web), kèm ảnh Chrome của app có tiện ích Claude đòi đăng nhập
+> dùng chome của app đăng nhập claude như ảnh app có điều khiển đc chome và làm việc dễ dàng hơn ko nếu có thì cài đặt và bảo a để a đăng nhập pugin claude
