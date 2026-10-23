@@ -18,6 +18,7 @@ function readImage(f: File): Promise<ImageAttachment> {
   });
 }
 import { EFFORTS, PERMISSIONS, firstLine, usd } from "./util";
+import { FileCards, filesFromSteps, groupItems, MarkdownText, StepGroup } from "./Messages";
 
 type Entry =
   | { key: string; kind: "item"; item: ChatItem }
@@ -32,9 +33,9 @@ interface Usage { inputTokens: number; outputTokens: number; costUsd: number }
 let seq = 0;
 const nextKey = () => `k${++seq}`;
 
-function ItemView({ item }: { item: ChatItem }) {
+function ItemView({ item, projectId, onError }: { item: ChatItem; projectId: number | null; onError: (m: string) => void }) {
   if (item.kind === "user") return <div className="msg user"><div className="bubble">{item.text}</div></div>;
-  if (item.kind === "assistant") return <div className="msg assistant"><div className="bubble">{item.text}</div></div>;
+  if (item.kind === "assistant") return <div className="msg assistant"><MarkdownText text={item.text} projectId={projectId} onError={onError} /></div>;
   if (item.kind === "tool_use" || item.kind === "tool_result") {
     const label = item.kind === "tool_use" ? `Công cụ ${item.toolName ?? ""}` : `Kết quả ${item.toolName ?? ""}`;
     return (
@@ -347,12 +348,30 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
               </div>
             )}
             {entries.length === 0 && hasKey && <div className="muted empty">Hãy nhập yêu cầu bên dưới để bắt đầu.</div>}
-            {entries.map((en) => {
-              if (en.kind === "item") return <ItemView key={en.key} item={en.item} />;
-              if (en.kind === "draft") return <div key={en.key} className="msg assistant"><div className="bubble typing">{en.text}</div></div>;
-              if (en.kind === "pending-user") return <div key={en.key} className="msg user"><div className="bubble">{en.text}</div></div>;
-              return <div key={en.key} className={`note-line${en.tone === "danger" ? " danger" : ""}`}>{en.text}</div>;
-            })}
+            {(() => {
+              // Thẻ tệp hiện ngay sau dòng kết thúc của mỗi việc (dòng system/error cuối cùng của việc đó).
+              const lastOfTask = new Map<number, string>();
+              for (const en of entries) if (en.kind === "item" && (en.item.kind === "system" || en.item.kind === "error")) lastOfTask.set(en.item.taskId, en.key);
+              const isStep = (en: Entry) => en.kind === "item" && (en.item.kind === "tool_use" || en.item.kind === "tool_result");
+              return groupItems(entries, isStep).map((g) => {
+                if ("steps" in g) return <StepGroup key={g.steps[0].key} items={g.steps.map((e) => (e as Extract<Entry, { kind: "item" }>).item)} />;
+                const en = g.one;
+                if (en.kind === "item") {
+                  const it = en.item;
+                  const files = lastOfTask.get(it.taskId) === en.key
+                    ? filesFromSteps(entries.flatMap((x) => (x.kind === "item" && x.item.taskId === it.taskId ? [x.item] : []))) : [];
+                  return (
+                    <div key={en.key}>
+                      <ItemView item={it} projectId={projectId} onError={setError} />
+                      <FileCards files={files} projectId={projectId} onError={setError} />
+                    </div>
+                  );
+                }
+                if (en.kind === "draft") return <div key={en.key} className="msg assistant"><MarkdownText text={en.text} projectId={projectId} onError={setError} /></div>;
+                if (en.kind === "pending-user") return <div key={en.key} className="msg user"><div className="bubble">{en.text}</div></div>;
+                return <div key={en.key} className={`note-line${en.tone === "danger" ? " danger" : ""}`}>{en.text}</div>;
+              });
+            })()}
             <div ref={bottomRef} />
           </div>
 

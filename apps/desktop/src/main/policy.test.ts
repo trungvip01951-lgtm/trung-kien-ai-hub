@@ -78,3 +78,12 @@ test("khoá Đồng ý luôn: hẹp theo lệnh, thư mục, tên miền", () =>
   // Tệp cấu hình được bảo vệ: không có Đồng ý luôn.
   assert.equal(decide("write", "Edit", { file_path: path.join(proj, "CLAUDE.md") }, proj).noAlways, true);
 });
+
+test("Đồng ý luôn cho lệnh chạy chương trình: theo đúng tệp chương trình", () => {
+  const proj = path.join(os.tmpdir(), "du-an-py");
+  const k = (c: string) => alwaysKey("Bash", { command: c }, proj);
+  assert.equal(k("python3 -B -X utf8 kho/bin/bc.py khoi-dong"), k("python3 -B -X utf8 kho/bin/bc.py viec-mo --id V088"));
+  assert.notEqual(k("python3 -B -X utf8 kho/bin/bc.py khoi-dong"), k("python3 -B -X utf8 kho/bin/tu_tra.py viec"));
+  assert.equal(k('python -c "import os"'), 'Bash=python -c "import os"');
+  assert.equal(k("python -m pip install x"), "Bash~python -m pip");
+});

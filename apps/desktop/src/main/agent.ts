@@ -68,7 +68,7 @@ export interface AgentDeps {
   connections?: {
     forTask(): Promise<{ servers: Record<string, McpServerConfig>; notes: string[] }>;
     owns(toolName: string): boolean;
-    decide(toolName: string, level: StartTaskInput["permission"]): Decision;
+    decide(toolName: string, level: StartTaskInput["permission"], input?: unknown): Decision;
   };
   appVersion: string;
   now?: () => Date;
@@ -244,7 +244,10 @@ export class AgentRunner {
     const chrome = settings.chrome.enabled && this.deps.chrome && !browserBusy ? settings.chrome : null;
     const noBrowser = !settings.chrome.enabled || !this.deps.chrome ? "Điều khiển trình duyệt đang tắt (mục Chrome)."
       : `Trình duyệt đang được việc #${browserBusy?.taskId} dùng. Chờ việc đó xong rồi giao lại phần cần trình duyệt.`;
-    const guides = [chrome ? CHROME_GUIDE : "", this.deps.memory ? MEMORY_GUIDE : ""].filter(Boolean).join("\n\n");
+    // Dự án viết quy tắc ở AGENTS.md (agent chỉ tự nạp CLAUDE.md): nhắc đọc trước khi làm.
+    const agentsMd = existsSync(path.join(project.path, "AGENTS.md"))
+      ? "Dự án có AGENTS.md ở thư mục gốc: đó là điểm vào quy tắc của dự án. Đọc AGENTS.md trước khi làm việc đầu tiên trong hội thoại." : "";
+    const guides = [agentsMd, chrome ? CHROME_GUIDE : "", this.deps.memory ? MEMORY_GUIDE : ""].filter(Boolean).join("\n\n");
     const systemPrompt = buildSystemPrompt(project.instructions, autoRouting, guides);
     const agents = { ...(autoRouting ? ROUTED_AGENTS : {}), ...(this.deps.specialists?.() ?? {}) };
     // Trang đang mở trong trình duyệt của app (lấy từ kết quả công cụ) để áp quyền theo website.
@@ -254,7 +257,7 @@ export class AgentRunner {
       : toolName.startsWith(`mcp__${MEMORY_SERVER}__`) ? decideMemory(toolName.slice(MEMORY_SERVER.length + 7), toolInput, level)
       : toolName.startsWith(`mcp__${WIN_SERVER}__`) ? decideWindows(toolName.slice(WIN_SERVER.length + 7), level, toolInput)
       : toolName.startsWith(`mcp__${OFFICE_SERVER}__`) ? decideOffice(toolName.slice(OFFICE_SERVER.length + 7), toolInput, level, project.path)
-      : this.deps.connections?.owns(toolName) ? this.deps.connections.decide(toolName, level)
+      : this.deps.connections?.owns(toolName) ? this.deps.connections.decide(toolName, level, toolInput)
       : decide(level, toolName, toolInput, project.path, extraRead));
     // Khoá cho nút "Đồng ý luôn" (null = không cho). Trình duyệt: mở trang theo tên miền đích, thao tác theo tên miền trang đang mở.
     const askKey = (toolName: string, toolInput: unknown, d: Decision): string | null => {

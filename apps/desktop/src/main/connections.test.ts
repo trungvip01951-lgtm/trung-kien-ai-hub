@@ -97,13 +97,17 @@ test("quyền công cụ kết nối: đọc tự cho, ghi phải hỏi, Chỉ �
   const c = new Connections(path.join(dir, "c.json"), path.join(dir, "c.bin"), cipher, () => {});
   c.add("sheets");
   c.add("windsor");
-  assert.equal(c.owns("mcp__sheets__get_values"), true);
+  assert.equal(c.owns("mcp__Google_Sheets__get_values"), true);
   assert.equal(c.owns("mcp__chrome__browser_click"), false);
-  assert.equal(c.decide("mcp__sheets__get_values", "read").decision, "allow");
-  assert.equal(c.decide("mcp__sheets__update_values", "write").decision, "ask");
-  assert.equal(c.decide("mcp__windsor__execute_action", "read").decision, "deny");
-  assert.equal(c.decide("mcp__windsor__get_data", "write").decision, "allow");
-  assert.equal(c.decide("mcp__windsor__execute_action", "full").decision, "allow");
+  assert.equal(c.add("sheets").ok, false);   // không thêm trùng
+  assert.equal(c.decide("mcp__Google_Sheets__get_values", "read").decision, "allow");
+  assert.equal(c.decide("mcp__Google_Sheets__update_values", "write").decision, "ask");
+  // Ghi Sheet: "Đồng ý luôn" theo đúng một bảng tính; gửi thư/chạy hành động quảng cáo không có.
+  assert.equal(c.decide("mcp__Google_Sheets__update_values", "write", { spreadsheetId: "SO-MAU-1" }).key, "mcp__Google_Sheets__update_values@sheet:SO-MAU-1");
+  assert.equal(c.decide("mcp__Windsor_ai__execute_action", "write").noAlways, true);
+  assert.equal(c.decide("mcp__Windsor_ai__execute_action", "read").decision, "deny");
+  assert.equal(c.decide("mcp__Windsor_ai__get_data", "write").decision, "allow");
+  assert.equal(c.decide("mcp__Windsor_ai__execute_action", "full").decision, "allow");
   const g = c.info().find((x) => x.kind === "sheets")!;
   assert.equal(g.needsClientId, true);
   assert.equal(c.setClient(g.id, "sai-dinh-dang", "").ok, false);
@@ -113,4 +117,15 @@ test("quyền công cụ kết nối: đọc tự cho, ghi phải hỏi, Chỉ �
   c.setClient(g.id, "123-abc.apps.googleusercontent.com", "bi-mat-mau");
   assert.equal(c.info().find((x) => x.kind === "gmail")!.hasClientId, true);
   assert.equal(c.add("custom", "x", "http://vi-du.vn/mcp").ok, false);   // phải https
+});
+
+test("đổi tên kết nối bản 0.5.0 (sheets, gmail) sang tên trùng claude.ai, giữ mã đăng nhập", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "ket-noi-"));
+  writeFileSync(path.join(dir, "c.json"), JSON.stringify([{ id: "sheets", kind: "sheets", name: "Google Trang tính", url: "https://sheetsmcp.googleapis.com/mcp/v1", enabled: true, lastError: null, connectedAt: null }]));
+  writeFileSync(path.join(dir, "c.bin"), cipher.encrypt(JSON.stringify({ sheets: { tokens: { access_token: "ma-mau", token_type: "Bearer" } } })));
+  const c = new Connections(path.join(dir, "c.json"), path.join(dir, "c.bin"), cipher, () => {});
+  const i = c.info()[0];
+  assert.equal(i.id, "Google_Sheets");
+  assert.equal(i.toolPrefix, "mcp__Google_Sheets__");
+  assert.equal(i.status, "connected");
 });

@@ -18,6 +18,7 @@ import { officeServer, windowsServer } from "./local-tools";
 import { nextRun, validateRule } from "./schedule";
 import { setSelfPids } from "./windows";
 import { makePdf } from "./pdf";
+import { checkOpenable } from "./open-file";
 import { mergeSpecialists, toAgentDefinitions } from "./specialists";
 import type { SpecialistInfo } from "../shared/contract";
 import { claudeExecutablePath, playwrightMcpCliPath } from "./sdk-path";
@@ -205,6 +206,19 @@ function registerIpc(db: HubDb, keys: KeyRing, runner: AgentRunner, skills: Skil
   h("setExtensionToken", (t: string) => ext.set(String(t ?? "")));
   h("hasExtensionToken", () => ext.get() !== null);
   h("runningTasks", () => runner.runningTasks());
+  // Mở tệp/thư mục từ khung chat. Đường dẫn tương đối tính từ thư mục dự án đang chat.
+  h("openFile", async (p: string, projectId: number | null, folder?: boolean) => {
+    const base = projectId != null ? db.getProject(Number(projectId))?.path ?? null : null;
+    const r = checkOpenable(String(p ?? ""), base);
+    if (!r.ok) {
+      // Tệp chạy chương trình vẫn cho mở thư mục chứa nó.
+      if (folder) { const f = path.resolve(base ?? "", String(p ?? "")); if (existsSync(f)) { shell.showItemInFolder(f); return { ok: true, message: "" }; } }
+      return r;
+    }
+    if (folder) { shell.showItemInFolder(r.file); return { ok: true, message: "" }; }
+    const err = await shell.openPath(r.file);
+    return err ? { ok: false, message: `Không mở được: ${err}` } : { ok: true, message: "" };
+  });
   h("enqueueTask", (input: StartTaskInput) => jobs.enqueue(input, "Chat"));
   h("listQueue", () => db.listQueue());
   h("cancelQueue", (id: number) => jobs.cancel(Number(id)));

@@ -34,14 +34,16 @@ export const ROUTING_GUIDE = [
   "- Mỗi lần giao: ghi rõ mục tiêu, tệp liên quan, kết quả cần trả về; chỉ đưa bối cảnh cần thiết.",
 ].join("\n");
 
-// Lời dặn hệ thống cho AI chính: phần chia việc (nếu bật) + hướng dẫn dự án anh Trung soạn trong app.
-export function buildSystemPrompt(projectInstructions: string, autoRouting: boolean, extraGuide = ""): Options["systemPrompt"] | undefined {
+// Lời dặn hệ thống cho AI chính: bộ lời dặn đầy đủ của Claude Code (môi trường máy, hệ điều hành, thư mục, ngày giờ,
+// cách dùng công cụ — để agent làm việc như app Claude) cộng phần của app: chia việc, trình duyệt, bộ nhớ,
+// hướng dẫn dự án anh Trung soạn. Không đặt thì Agent SDK chỉ gửi 1 câu giới thiệu (đo 22/10/2026).
+export function buildSystemPrompt(projectInstructions: string, autoRouting: boolean, extraGuide = ""): Options["systemPrompt"] {
   const parts: string[] = [];
   if (autoRouting) parts.push(ROUTING_GUIDE);
   if (extraGuide) parts.push(extraGuide);
   const ins = projectInstructions.trim();
   if (ins) parts.push(`Hướng dẫn dự án (anh Trung đặt trong Trung Kiên AI Hub, áp dụng cho mọi việc của dự án này):\n${ins}`);
-  if (!parts.length) return undefined;
+  parts.unshift("Đang làm trong Trung Kiên AI Hub cho anh Trung: trả lời tiếng Việt, xưng em, gọi anh Trung; thuật ngữ tiếng Anh thì dịch và giải thích. Tệp kết quả ghi rõ đường dẫn đầy đủ để anh bấm mở.");
   // snapshot: false để sửa hướng dẫn thì hội thoại đang dở cũng theo bản mới ngay.
-  return { type: "custom", prompt: parts.join("\n\n"), snapshot: false };
+  return { type: "preset", preset: "claude_code", append: parts.join("\n\n"), snapshot: false };
 }

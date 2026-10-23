@@ -58,11 +58,13 @@ test("nhận diện Thịnh Vượng có dấu, không dấu", () => {
   assert.deepEqual(handoffSummary("không có mục"), { current: "", next: "" });
 });
 
-test("lời dặn hệ thống: chia việc và hướng dẫn dự án", () => {
-  assert.equal(buildSystemPrompt("", false), undefined);
-  const s = buildSystemPrompt("  Trả lời tiếng Việt  ", true) as { type: string; prompt: string; snapshot: boolean };
-  assert.equal(s.type, "custom");
+test("lời dặn hệ thống: bộ lời dặn của Claude Code + chia việc + hướng dẫn dự án", () => {
+  const off = buildSystemPrompt("", false) as { type: string; preset: string; append: string };
+  assert.equal(off.preset, "claude_code");
+  assert.doesNotMatch(off.append, /tro-ly-co-hoc/);
+  const s = buildSystemPrompt("  Trả lời tiếng Việt  ", true) as { type: string; append: string; snapshot: boolean };
+  assert.equal(s.type, "preset");
   assert.equal(s.snapshot, false);
-  assert.match(s.prompt, /tro-ly-co-hoc/);
-  assert.match(s.prompt, /Hướng dẫn dự án[^\n]*\nTrả lời tiếng Việt$/);
+  assert.match(s.append, /tro-ly-co-hoc/);
+  assert.match(s.append, /Hướng dẫn dự án[^\n]*\nTrả lời tiếng Việt$/);
 });

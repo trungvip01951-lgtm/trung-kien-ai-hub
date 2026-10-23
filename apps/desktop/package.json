@@ -1,7 +1,7 @@
 {
   "name": "trung-kien-ai-hub",
   "productName": "Trung Kien AI Hub",
-  "version": "0.5.1",
+  "version": "0.6.0-dev.1",
   "description": "Trung Kiên AI Hub - ứng dụng AI Agent cho Windows, chạy bằng Claude API",
   "private": true,
   "repository": "https://github.com/trungvip01951-lgtm/trung-kien-ai-hub",
@@ -30,6 +30,8 @@
     "electron-builder": "26.17.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
     "typescript": "5.9.3",
     "vite": "8.1.6"
   },

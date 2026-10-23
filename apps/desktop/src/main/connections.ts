@@ -12,6 +12,12 @@ import type { Decision } from "./policy";
 // cấp quyền, đăng ký client, PKCE, làm mới mã). Mã truy cập và client secret mã hoá bằng safeStorage (Windows: DPAPI),
 // không gửi lên giao diện, không ghi log hay cơ sở dữ liệu.
 
+// Tên máy chủ trùng tên kết nối trên claude.ai (công cụ mcp__Google_Sheets__get_values...), để Skill và quy tắc dự án
+// viết cho claude.ai dùng được nguyên trong app.
+export const PRESET_ID: Record<Exclude<ConnectionKind, "custom">, string> = {
+  windsor: "Windsor_ai", gmail: "Gmail", drive: "Google_Drive", sheets: "Google_Sheets",
+};
+
 export const PRESETS: Record<Exclude<ConnectionKind, "custom">, { name: string; url: string; google: boolean }> = {
   windsor: { name: "Windsor.ai", url: "https://mcp.windsor.ai", google: false },
   gmail: { name: "Gmail", url: "https://gmailmcp.googleapis.com/mcp/v1", google: true },
@@ -55,6 +61,17 @@ export class Connections {
     this.redirectUrl = `http://127.0.0.1:${this.port}/callback`;
     if (existsSync(file)) { try { this.list = JSON.parse(readFileSync(file, "utf8")); } catch { this.list = []; } }
     if (existsSync(secretFile)) { try { this.secrets = JSON.parse(cipher.decrypt(readFileSync(secretFile))); } catch { this.secrets = {}; } }
+    // Bản 0.5.0 đặt tên kết nối "sheets", "gmail"...: đổi sang tên trùng kết nối claude.ai để Skill/AGENTS.md gọi đúng công cụ.
+    let moved = false;
+    for (const c of this.list) {
+      const want = c.kind === "custom" ? null : PRESET_ID[c.kind];
+      if (want && c.id !== want && !this.list.some((o) => o.id === want)) {
+        if (this.secrets[c.id]) { this.secrets[want] = this.secrets[c.id]; delete this.secrets[c.id]; }
+        c.id = want;
+        moved = true;
+      }
+    }
+    if (moved) this.save();
   }
 
   private save() {
@@ -84,7 +101,8 @@ export class Connections {
       if (u.protocol !== "https:" && !local) return { ok: false, message: "Địa chỉ máy chủ MCP phải là https." };
     } catch { return { ok: false, message: "Địa chỉ máy chủ MCP không hợp lệ." }; }
     const label = (preset?.name ?? String(name ?? "").trim()) || "Kết nối";
-    let id = slugOf(kind === "custom" ? label : kind);
+    if (kind !== "custom" && this.list.some((c) => c.kind === kind)) return { ok: false, message: `${label} đã có.` };
+    let id = kind === "custom" ? slugOf(label) : PRESET_ID[kind];
     // Tên máy chủ không trùng các tên app đã dùng.
     while (this.list.some((c) => c.id === id) || id === "chrome") id = `${id}-${randomBytes(2).toString("hex")}`;
     this.list.push({ id, kind, name: label, url: finalUrl, enabled: true, lastError: null, connectedAt: null });
@@ -250,12 +268,17 @@ export class Connections {
     return this.list.some((c) => toolName.startsWith(`mcp__${c.id}__`));
   }
 
-  decide(toolName: string, level: PermissionLevel): Decision {
+  decide(toolName: string, level: PermissionLevel, input: unknown = {}): Decision {
     const c = this.list.find((x) => toolName.startsWith(`mcp__${x.id}__`));
     const tool = toolName.slice(`mcp__${c?.id}__`.length);
     if (level === "full") return { decision: "allow", reason: "Đủ quyền" };
     if (READ_TOOL.test(tool)) return { decision: "allow", reason: `${c?.name}: đọc dữ liệu` };
     if (level === "read") return { decision: "deny", reason: `Chế độ Chỉ đọc: không dùng ${tool} của ${c?.name} (có thể gửi/sửa dữ liệu).` };
+    // Ghi Google Trang tính: "Đồng ý luôn" theo đúng một bảng tính (việc nạp báo cáo ghi nhiều lần vào cùng sổ).
+    const sheetId = (input as { spreadsheetId?: unknown })?.spreadsheetId;
+    if (c?.kind === "sheets" && typeof sheetId === "string" && sheetId) {
+      return { decision: "ask", reason: `${c.name}: ${tool} ghi vào bảng tính ${sheetId}`, key: `${toolName}@sheet:${sheetId}` };
+    }
     return { decision: "ask", reason: `${c?.name}: ${tool} có thể gửi/sửa dữ liệu thật`, noAlways: true };
   }
 }

@@ -267,7 +267,8 @@ test("nạp kho Skill của app, AI phụ chia việc và hướng dẫn dự á
   assert.deepEqual(Object.keys(o.agents ?? {}).sort(), ["tro-ly-co-hoc", "tro-ly-phan-tich", "tro-ly-thuc-thi"]);
   assert.equal(o.agents!["tro-ly-co-hoc"].model, "claude-haiku-5-5");
   assert.equal(o.agents!["tro-ly-phan-tich"].effort, "high");
-  assert.match((o.systemPrompt as { prompt: string }).prompt, /Luôn trả lời tiếng Việt/);
+  assert.match((o.systemPrompt as { append: string }).append, /Luôn trả lời tiếng Việt/);
+  assert.equal((o.systemPrompt as { preset: string }).preset, "claude_code");
 
   // Tắt tự chia việc, không có hướng dẫn, chưa có Skill: giữ như bản 0.2.x.
   const t2 = setup(async function* () { yield init(); yield result(0.001); });
@@ -275,7 +276,7 @@ test("nạp kho Skill của app, AI phụ chia việc và hướng dẫn dự á
   await (await t2.runner.start(input(t2.project.id))).done;
   assert.equal(t2.calls[0].plugins, undefined);
   assert.equal(t2.calls[0].agents, undefined);
-  assert.equal(t2.calls[0].systemPrompt, undefined);
+  assert.doesNotMatch((t2.calls[0].systemPrompt as { append: string }).append, /tro-ly-co-hoc|Hướng dẫn dự án/);
 });
 
 test("tiếp tục phiên Claude Code cũ: lần đầu không tính chi phí lịch sử ngoài app", async () => {
@@ -314,7 +315,7 @@ test("trình duyệt: bật thì nạp máy chủ MCP và áp quyền theo websi
   assert.equal(srv.command, "/app/app");
   assert.ok(srv.args.includes("msedge"));
   assert.deepEqual(decisions, ["browser_navigate:allow", "browser_type:allow", "browser_cookie_list:deny"]);
-  assert.match((t.calls[0].systemPrompt as { prompt: string }).prompt, /mcp__chrome__/);
+  assert.match((t.calls[0].systemPrompt as { append: string }).append, /mcp__chrome__/);
 
   decisions.length = 0;
   const t2 = setup(script, "sk-ant-api03-gia", [], undefined, paths);

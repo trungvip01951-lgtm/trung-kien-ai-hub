@@ -202,6 +202,8 @@ export interface HubApi {
   setExtensionToken(token: string): Promise<void>;
   hasExtensionToken(): Promise<boolean>;
   runningTasks(): Promise<{ taskId: number; conversationId: number }[]>;
+  // Mở tệp bằng chương trình mặc định (folder: mở thư mục chứa tệp). Không mở tệp chạy chương trình.
+  openFile(path: string, projectId: number | null, folder?: boolean): Promise<{ ok: boolean; message: string }>;
   enqueueTask(input: StartTaskInput): Promise<QueueItem>;
   listQueue(): Promise<QueueItem[]>;
   cancelQueue(id: number): Promise<void>;

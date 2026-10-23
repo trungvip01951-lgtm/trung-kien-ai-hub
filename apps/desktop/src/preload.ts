@@ -59,6 +59,7 @@ const api: HubApi = {
   saveMemory: call("saveMemory") as HubApi["saveMemory"],
   deleteMemory: call("deleteMemory") as HubApi["deleteMemory"],
   checkIntegrity: call("checkIntegrity") as HubApi["checkIntegrity"],
+  openFile: call("openFile") as HubApi["openFile"],
   openBrowserProfile: call("openBrowserProfile") as HubApi["openBrowserProfile"],
   listConversations: call("listConversations") as HubApi["listConversations"],
   conversationItems: call("conversationItems") as HubApi["conversationItems"],

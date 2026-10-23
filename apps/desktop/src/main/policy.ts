@@ -50,7 +50,21 @@ export function alwaysKey(toolName: string, input: unknown, projectDir: string):
   if (typeof i.command === "string") {
     const cmd = i.command.trim();
     if (/[;&|\`$<>(){}\n\r]/.test(cmd)) return `${toolName}=${cmd}`;
-    return `${toolName}~${cmd.split(/\s+/).slice(0, 2).join(" ")}`;
+    const words = cmd.split(/\s+/);
+    // Trình chạy chương trình (python, node, powershell…): tính theo đúng tệp chương trình, không theo 2 từ đầu
+    // ("python3 -B" sẽ cho mọi chương trình python).
+    if (/^(python[\d.]*|py|node|pwsh|powershell|bash|sh|cmd)(\.exe)?$/i.test(path.basename(words[0]))) {
+      for (let k = 1; k < words.length; k++) {
+        const w = words[k];
+        if (/^-[XW]$/.test(w)) { k++; continue; }
+        if (/^-(c|e|Command|EncodedCommand)$/i.test(w)) return `${toolName}=${cmd}`;
+        if (w === "-m" && words[k + 1]) return `${toolName}~${words[0]} -m ${words[k + 1]}`;
+        if (w.startsWith("-")) continue;
+        return `${toolName}~${words[0]} ${w.replace(/\\/g, "/").toLowerCase()}`;
+      }
+      return `${toolName}=${cmd}`;
+    }
+    return `${toolName}~${words.slice(0, 2).join(" ")}`;
   }
   if (typeof i.url === "string") {
     try { return `${toolName}@${new URL(i.url).hostname.toLowerCase()}`; } catch { return null; }
