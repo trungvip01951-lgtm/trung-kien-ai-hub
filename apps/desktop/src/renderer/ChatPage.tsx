@@ -19,7 +19,7 @@ function readImage(f: File): Promise<ImageAttachment> {
   });
 }
 import { EFFORTS, PERMISSIONS, firstLine, usd } from "./util";
-import { FileCards, filesFromSteps, groupItems, MarkdownText, StepGroup } from "./Messages";
+import { FileCards, filesFromSteps, groupItems, MarkdownText, StepGroup, toolLabel } from "./Messages";
 
 type Entry =
   | { key: string; kind: "item"; item: ChatItem }
@@ -95,8 +95,9 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
   projectRef.current = projectId;
   convRef.current = convId;
 
+  const startedAt = useRef(new Map<number, number>());     // việc → lúc bắt đầu (đếm giờ chạy)
   const markRunning = (taskId: number, conversationId: number, on: boolean) => {
-    if (on) taskConv.current.set(taskId, conversationId);
+    if (on) { taskConv.current.set(taskId, conversationId); if (!startedAt.current.has(taskId)) startedAt.current.set(taskId, Date.now()); }
     setRunningByConv((m) => { const n = new Map(m); if (on) n.set(conversationId, taskId); else if (n.get(conversationId) === taskId) n.delete(conversationId); return n; });
   };
   // Sự kiện của việc thuộc hội thoại đang mở trên màn hình.
@@ -379,6 +380,8 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
                 return <div key={en.key} className={`note-line${en.tone === "danger" ? " danger" : ""}`}>{en.text}</div>;
               });
             })()}
+            {taskId !== null && <RunStatus taskId={taskId} entries={entries} waiting={perms.find((p) => p.taskId === taskId)?.toolName ?? null}
+              since={startedAt.current.get(taskId) ?? Date.now()} />}
             <div ref={bottomRef} />
           </div>
 
@@ -446,6 +449,32 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Dòng trạng thái khi việc đang chạy: đang làm bước gì, đã bao lâu, có đang chờ anh cho phép không.
+function RunStatus({ taskId, entries, waiting, since }: { taskId: number; entries: Entry[]; waiting: string | null; since: number }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  const mine = entries.filter((e) => (e.kind === "item" && e.item.taskId === taskId) || (e.kind === "draft" && e.taskId === taskId));
+  const steps = mine.filter((e) => e.kind === "item" && e.item.kind === "tool_use").length;
+  const last = mine[mine.length - 1];
+  let text = "Đang suy nghĩ…";
+  if (waiting) text = `Đang chờ anh cho phép: ${toolLabel(waiting, {}).label.replace(/[:\s]+$/, "")}`;
+  else if (last?.kind === "draft") text = "Đang viết câu trả lời…";
+  else if (last?.kind === "item" && last.item.kind === "tool_use") {
+    let input: Record<string, unknown> = {};
+    try { input = JSON.parse(last.item.text) as Record<string, unknown>; } catch { /* giữ trống */ }
+    text = `Đang làm: ${toolLabel(last.item.toolName ?? "", input).label}`;
+  } else if (last?.kind === "item" && last.item.kind === "tool_result") text = "Đang xem kết quả, tính bước tiếp…";
+  const sec = Math.max(0, Math.floor((now - since) / 1000));
+  const time = sec >= 60 ? `${Math.floor(sec / 60)} phút ${sec % 60} giây` : `${sec} giây`;
+  return (
+    <div className={`run-status${waiting ? " waiting" : ""}`}>
+      <span className="spinner" />
+      <span className="grow">{text}</span>
+      <span className="muted small">{steps > 0 ? `${steps} bước · ` : ""}{time}</span>
     </div>
   );
 }

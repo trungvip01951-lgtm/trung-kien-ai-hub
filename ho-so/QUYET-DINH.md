@@ -93,3 +93,9 @@ Nghĩa: không báo tiến độ giữa chừng; chỉ báo khi xong để anh c
 
 ## 23/10/2026 — phiên Claude Code (web), kèm ảnh chụp bước "Exit code 2"
 > giao diện trình bày và cách trình bày giống trong app claude cho a. file e trả trong app cũng mở đc như trong app claude và nó hay bị lỗi lúc trả lời xem nó ở đâu xử lý cho a nhé. kiểm lại app 1 lần xem có lỗi gì báo a và cái nào mà để k làm đc đầy đủ dự án báo cáo cty của a thì xử lý cho a song báo a nhé.
+
+## 23/10/2026 — phiên Claude Code (web), kèm ảnh mục MCP và công cụ (báo "Nhập OAuth Client ID của Google trước")
+> chỗ này cho đăng nhập bằng tk google mở chome cho đăng nhập như cách claude cho làm ấy
+
+## 23/10/2026 — phiên Claude Code (web)
+> trong khung chát có thể hiện rõ là đang chạy hay đang làm việc gì để a còn biết nhé

@@ -129,3 +129,14 @@ test("đổi tên kết nối bản 0.5.0 (sheets, gmail) sang tên trùng claud
   assert.equal(i.toolPrefix, "mcp__Google_Sheets__");
   assert.equal(i.status, "connected");
 });
+
+test("Google: nhập client bằng tệp JSON tải về, kết nối Google thêm sau dùng chung", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "conn-json-"));
+  const c = new Connections(path.join(dir, "c.json"), path.join(dir, "c.bin"), cipher, () => {}, fetch, { port: 0 });
+  const s = c.add("sheets").id!;
+  assert.equal(c.setClientFromJson(s, "khong phai json").ok, false);
+  assert.equal(c.setClientFromJson(s, JSON.stringify({ installed: {} })).ok, false);
+  assert.equal(c.setClientFromJson(s, JSON.stringify({ installed: { client_id: "123-mau.apps.googleusercontent.com", client_secret: "mau" } })).ok, true);
+  const g = c.add("gmail").id!;
+  assert.equal(c.info().find((x) => x.id === g)?.hasClientId, true);
+});

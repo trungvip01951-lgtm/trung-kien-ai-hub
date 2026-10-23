@@ -92,3 +92,9 @@ Mục mới nối xuống cuối. Mỗi mục: `## dd/mm/yyyy hh:mm — <tên AI
 
 ## 23/10/2026 13:20 — Claude-1
 - Anh Trung nối lại GitHub; đẩy bản 0.6.0 lên. CI "Build Windows" xanh (https://github.com/trungvip01951-lgtm/trung-kien-ai-hub/actions/runs/39910053924), đăng Release v0.6.0 lúc 13:16.
+
+## 23/10/2026 13:24 — Claude-1
+- Bản 0.6.1 theo 2 yêu cầu anh Trung 23/10:
+  - **Đăng nhập Google như app Claude**: bấm Đăng nhập mở thẳng Chrome anh đang dùng (đã đăng nhập Google sẵn, chỉ chọn tài khoản → Cho phép), không có Chrome thì Edge, rồi trình duyệt mặc định (`src/main/index.ts` openLoginPage). Đã đo: máy chủ Google (accounts.google.com) không có đăng ký client tự động (không có registration_endpoint), nên vẫn cần OAuth client của anh 1 lần — app Claude dùng client của hãng Anthropic, app này không được dùng. Làm cho dễ: nhập bằng tệp JSON Google cho tải về (nút "Chọn tệp JSON"), hướng dẫn có liên kết thẳng từng trang Google Cloud; kết nối Google thêm sau tự dùng chung client.
+  - **Khung chat hiện việc đang chạy**: dòng trạng thái có vòng quay dưới cùng: "Đang làm: Chạy lệnh …/Đọc …/Tạo tệp …", "Đang viết câu trả lời…", "Đang chờ anh cho phép: …" (viền vàng), số bước và thời gian đã chạy.
+- Kiểm: 78 test (thêm 1: tệp JSON, dùng chung client), kiểm tra khói 8/8, giao diện Chromium với dữ liệu giả hiện dòng trạng thái, 0 lỗi trang. Đăng nhập Google thật CHƯA THỂ XÁC MINH trên cloud.

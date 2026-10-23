@@ -78,16 +78,20 @@ export function McpPage() {
         <>
           <h2>Kết nối Google (Gmail, Drive, Trang tính): làm 1 lần</h2>
           <div className="card small">
-            Google chưa cho app tự đăng ký, nên anh tạo một "OAuth client" trong Google Cloud (miễn phí). Máy chủ MCP của Google đang ở giai đoạn
-            xem trước cho nhà phát triển: tài khoản cần được Google cho dùng; nếu đăng nhập báo 403 là tài khoản chưa được mở.
+            Đăng nhập: bấm <b>Đăng nhập</b> → Chrome anh đang dùng mở trang Google → chọn tài khoản → <b>Cho phép</b>, xong tự quay về app.
+            <br />Riêng lần đầu, Google bắt mỗi phần mềm phải có "mã ứng dụng" (OAuth client) riêng. App Claude dùng mã của hãng Anthropic, app này
+            không được dùng mã đó, nên anh tạo mã của anh 1 lần (miễn phí, khoảng 5 phút), dùng chung cho Gmail, Drive, Trang tính:
             <ol>
-              <li>Vào <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noreferrer">console.cloud.google.com</a>, tạo dự án (ví dụ "Trung Kien AI Hub").</li>
-              <li>Mục "APIs &amp; Services → Library": bật <b>Gmail API</b>, <b>Google Drive API</b>, <b>Google Sheets API</b> và các dịch vụ MCP tương ứng
-                (<span className="mono">gmailmcp.googleapis.com</span>, <span className="mono">drivemcp.googleapis.com</span>, <span className="mono">sheetsmcp.googleapis.com</span>).</li>
-              <li>Mục "Google Auth Platform": cấu hình màn hình đồng ý (loại External, thêm email của anh vào Test users).</li>
-              <li>Mục "Clients → Create client": chọn loại <b>Desktop app</b>. Chép Client ID và Client secret.</li>
-              <li>Quay lại đây, bấm "Nhập Client ID" ở một dòng Google (dùng chung cho cả 3), rồi bấm Đăng nhập từng dòng.</li>
+              <li>Mở <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noreferrer">tạo dự án</a> (tên tuỳ ý, ví dụ "Trung Kien AI Hub") → Tạo.</li>
+              <li>Bật dịch vụ: <a href="https://console.cloud.google.com/apis/library/sheets.googleapis.com" target="_blank" rel="noreferrer">Sheets API</a>,{" "}
+                <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noreferrer">Drive API</a>,{" "}
+                <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank" rel="noreferrer">Gmail API</a> và các dịch vụ MCP{" "}
+                (<span className="mono">sheetsmcp</span>, <span className="mono">drivemcp</span>, <span className="mono">gmailmcp</span>.googleapis.com): mở từng trang, bấm Enable.</li>
+              <li><a href="https://console.cloud.google.com/auth/overview" target="_blank" rel="noreferrer">Màn hình đồng ý</a>: Get started → loại External → mục Audience thêm email của anh vào Test users.</li>
+              <li><a href="https://console.cloud.google.com/auth/clients/create" target="_blank" rel="noreferrer">Tạo client</a>: Application type chọn <b>Desktop app</b> → Create → bấm <b>Download JSON</b>.</li>
+              <li>Quay lại đây bấm "Nhập Client ID" → "Chọn tệp JSON" → chọn tệp vừa tải. Sau đó bấm Đăng nhập từng dòng.</li>
             </ol>
+            Máy chủ MCP của Google đang ở giai đoạn xem trước: nếu đăng nhập báo 403 là tài khoản chưa được Google mở, báo em.
           </div>
         </>
       )}
@@ -108,6 +112,8 @@ export function McpPage() {
           <div className="dialog">
             <h3>OAuth client của Google</h3>
             <div className="col">
+              <button onClick={() => { const c = client; setClient(null); void act(null, () => window.hub.importGoogleClient(c.id)); }}>Chọn tệp JSON đã tải từ Google (nhanh nhất)</button>
+              <div className="small muted">hoặc dán tay:</div>
               <input placeholder="Client ID (…apps.googleusercontent.com)" value={client.cid} onChange={(e) => setClient({ ...client, cid: e.target.value })} />
               <input placeholder="Client secret" type="password" value={client.sec} onChange={(e) => setClient({ ...client, sec: e.target.value })} />
               <div className="small muted">Lưu mã hoá trên máy, dùng chung cho Gmail, Drive, Trang tính.</div>

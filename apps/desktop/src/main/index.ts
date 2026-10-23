@@ -68,6 +68,19 @@ export function installedBrowserPath(browser: "chrome" | "msedge", env: NodeJS.P
   return roots.map((r) => path.join(r, ...rel)).find((f) => existsSync(f)) ?? null;
 }
 
+// Trang đăng nhập kết nối (Google, Windsor): mở bằng Chrome/Edge anh đang dùng hằng ngày (đã đăng nhập sẵn tài khoản,
+// chỉ cần chọn tài khoản và bấm Cho phép như trong app Claude); không có trình duyệt đó thì mở trình duyệt mặc định.
+async function openLoginPage(url: string, browser: "chrome" | "msedge"): Promise<void> {
+  if (!/^https:\/\//i.test(url)) throw new Error("Địa chỉ đăng nhập không hợp lệ.");
+  const exe = installedBrowserPath(browser) ?? installedBrowserPath(browser === "chrome" ? "msedge" : "chrome");
+  if (!exe) return shell.openExternal(url);
+  await new Promise<void>((resolve) => {
+    const p = spawn(exe, [url], { detached: true, stdio: "ignore" });
+    p.once("spawn", () => { p.unref(); resolve(); });
+    p.once("error", () => { void shell.openExternal(url).finally(resolve); });
+  });
+}
+
 // Mở Chrome/Edge THƯỜNG (không qua công cụ tự động hoá) với hồ sơ riêng của app để anh tự đăng nhập:
 // Google chặn đăng nhập trên trình duyệt có cờ tự động hoá ("trình duyệt không an toàn").
 async function openBrowserProfile(db: HubDb, runner: AgentRunner, dataDir: string): Promise<{ ok: boolean; message: string }> {
@@ -205,6 +218,12 @@ function registerIpc(db: HubDb, keys: KeyRing, runner: AgentRunner, skills: Skil
   });
   h("removeConnection", (id: string) => conns.remove(String(id)));
   h("setConnectionEnabled", (id: string, on: boolean) => conns.setEnabled(String(id), on === true));
+  h("importGoogleClient", async (id: string) => {
+    const r = await dialog.showOpenDialog({ title: "Chọn tệp JSON Google cho tải về (client_secret_….json)", properties: ["openFile"], filters: [{ name: "JSON", extensions: ["json"] }] });
+    if (r.canceled || !r.filePaths[0]) return { ok: false, message: "" };
+    try { return conns.setClientFromJson(String(id), readFileSync(r.filePaths[0], "utf8")); }
+    catch (err) { return { ok: false, message: `Không đọc được tệp: ${String(err).slice(0, 200)}` }; }
+  });
   h("setConnectionClient", (id: string, cid: string, sec: string) => conns.setClient(String(id), String(cid ?? ""), String(sec ?? "")));
   h("loginConnection", (id: string) => conns.login(String(id)));
   h("logoutConnection", (id: string) => conns.logout(String(id)));
@@ -342,7 +361,7 @@ async function startApp() {
   const skills = new SkillStore(path.join(dataDir, "skills"));
   const cipher = { encrypt: (s: string) => safeStorage.encryptString(s), decrypt: (b: Buffer) => safeStorage.decryptString(b) };
   const conns = new Connections(path.join(dataDir, "connections.json"), path.join(dataDir, "connections.bin"), cipher,
-    (url) => shell.openExternal(url));
+    (url) => openLoginPage(url, db.getSettings().chrome.browser));
   const ext = new ExtensionToken(path.join(dataDir, "chrome-extension-token.bin"), cipher);
   const runner = new AgentRunner({
     db, query, emit, keys, skills, claudePath: claudeExecutablePath(), appVersion: app.getVersion(), attachDir: path.join(dataDir, "attachments"),

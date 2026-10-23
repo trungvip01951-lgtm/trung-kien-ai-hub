@@ -106,6 +106,11 @@ export class Connections {
     // Tên máy chủ không trùng các tên app đã dùng.
     while (this.list.some((c) => c.id === id) || id === "chrome") id = `${id}-${randomBytes(2).toString("hex")}`;
     this.list.push({ id, kind, name: label, url: finalUrl, enabled: true, lastError: null, connectedAt: null });
+    // Kết nối Google thêm sau dùng luôn OAuth client đã nhập cho kết nối Google khác.
+    if (preset?.google) {
+      const other = this.list.find((o) => o.id !== id && PRESETS[o.kind as keyof typeof PRESETS]?.google && (this.secrets[o.id]?.client as { client_id?: string })?.client_id);
+      if (other) this.secrets[id] = { client: { ...this.secrets[other.id].client! } };
+    }
     this.save();
     return { ok: true, message: `Đã thêm ${label}. Bấm Đăng nhập để kết nối.`, id };
   }
@@ -119,6 +124,15 @@ export class Connections {
   setEnabled(id: string, enabled: boolean) {
     const c = this.list.find((x) => x.id === id);
     if (c) { c.enabled = enabled; this.save(); }
+  }
+
+  // Tệp JSON Google cho tải về khi tạo client (client_secret_….json, khối "installed" hoặc "web").
+  setClientFromJson(id: string, json: string): { ok: boolean; message: string } {
+    let o: { installed?: { client_id?: string; client_secret?: string }; web?: { client_id?: string; client_secret?: string } };
+    try { o = JSON.parse(json); } catch { return { ok: false, message: "Tệp không phải JSON của Google." }; }
+    const c = o.installed ?? o.web;
+    if (!c?.client_id) return { ok: false, message: "Tệp JSON không có client_id. Tải lại tệp ở mục Clients của Google Cloud." };
+    return this.setClient(id, c.client_id, c.client_secret ?? "");
   }
 
   // OAuth client tự tạo trong Google Cloud (loại Desktop app): Google không cho đăng ký client tự động.
