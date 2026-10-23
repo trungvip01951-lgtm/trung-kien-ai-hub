@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from "electro
 import { listSessions, query } from "@anthropic-ai/claude-agent-sdk";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import type { HubEvent, InventoryRow, OldSession, Schedule, Settings, StartTaskInput } from "../shared/contract";
 import { AgentRunner } from "./agent";
 import { validateLimits } from "./budget";
@@ -21,7 +22,6 @@ import { mergeSpecialists, toAgentDefinitions } from "./specialists";
 import type { SpecialistInfo } from "../shared/contract";
 import { claudeExecutablePath, playwrightMcpCliPath } from "./sdk-path";
 import { profilePaths } from "./chrome";
-import { createRequire } from "node:module";
 import { runSmokeTest } from "./smoke";
 import { checkUpdateNow, installUpdate, startUpdater } from "./updater";
 
@@ -55,26 +55,34 @@ class ExtensionToken {
 // Cửa sổ trình duyệt mở bằng hồ sơ riêng của app để anh Trung tự đăng nhập. Hồ sơ chỉ một trình duyệt dùng được
 // một lúc, nên khi cửa sổ này mở thì không chạy việc, và ngược lại.
 let browserWindowOpen = false;
+// Đường dẫn Chrome/Edge đã cài trên máy (Windows).
+export function installedBrowserPath(browser: "chrome" | "msedge", env: NodeJS.ProcessEnv = process.env): string | null {
+  const roots = [env.PROGRAMFILES, env["PROGRAMFILES(X86)"], env.LOCALAPPDATA].filter(Boolean) as string[];
+  const rel = browser === "chrome" ? ["Google", "Chrome", "Application", "chrome.exe"] : ["Microsoft", "Edge", "Application", "msedge.exe"];
+  return roots.map((r) => path.join(r, ...rel)).find((f) => existsSync(f)) ?? null;
+}
+
+// Mở Chrome/Edge THƯỜNG (không qua công cụ tự động hoá) với hồ sơ riêng của app để anh tự đăng nhập:
+// Google chặn đăng nhập trên trình duyệt có cờ tự động hoá ("trình duyệt không an toàn").
 async function openBrowserProfile(db: HubDb, runner: AgentRunner, dataDir: string): Promise<{ ok: boolean; message: string }> {
   if (browserWindowOpen) return { ok: false, message: "Trình duyệt của app đang mở." };
   if (runner.runningTaskId() !== null) return { ok: false, message: "Đang chạy một việc. Chờ xong rồi mở trình duyệt để đăng nhập." };
   const s = db.getSettings().chrome;
-  // Dùng đúng thư viện Playwright đi kèm Playwright MCP để cùng phiên bản.
-  const req = createRequire(require.resolve("@playwright/mcp/package.json"));
-  const { chromium } = req("playwright-core") as typeof import("playwright-core");
+  const name = s.browser === "chrome" ? "Google Chrome" : "Microsoft Edge";
+  const exe = installedBrowserPath(s.browser);
+  if (!exe) return { ok: false, message: `Không thấy ${name} trên máy. Cài ${name} hoặc đổi trình duyệt trong mục Chrome.` };
   const { profileDir } = profilePaths(dataDir);
-  // Đặt cờ trước khi mở (mất vài giây) để không có việc nào chen vào dùng cùng hồ sơ.
+  // Đặt cờ trước khi mở để không có việc nào chen vào dùng cùng hồ sơ; tắt cửa sổ thì nhả.
   browserWindowOpen = true;
   try {
-    const ctx = await chromium.launchPersistentContext(profileDir, { channel: s.browser, headless: false, viewport: null });
-    ctx.on("close", () => { browserWindowOpen = false; });
-    const page = ctx.pages()[0] ?? await ctx.newPage();
-    await page.goto("about:blank");
-    return { ok: true, message: "Đã mở trình duyệt của app. Đăng nhập các website cần dùng, xong thì đóng cửa sổ đó rồi mới giao việc." };
+    const p = spawn(exe, [`--user-data-dir=${profileDir}`, "--no-first-run", "--no-default-browser-check", "https://accounts.google.com"],
+      { detached: false, stdio: "ignore" });
+    p.on("exit", () => { browserWindowOpen = false; });
+    p.on("error", () => { browserWindowOpen = false; });
+    return { ok: true, message: `Đã mở ${name} của app. Đăng nhập Google và các website cần dùng, xong thì ĐÓNG HẲN cửa sổ đó rồi mới giao việc.` };
   } catch (err) {
     browserWindowOpen = false;
-    const name = s.browser === "chrome" ? "Google Chrome" : "Microsoft Edge";
-    return { ok: false, message: `Không mở được ${name}: ${String(err).slice(0, 300)}. Kiểm tra máy đã cài ${name}, hoặc đổi trình duyệt trong mục Chrome.` };
+    return { ok: false, message: `Không mở được ${name}: ${String(err).slice(0, 300)}` };
   }
 }
 
@@ -318,7 +326,7 @@ async function startApp() {
     (url) => shell.openExternal(url));
   const ext = new ExtensionToken(path.join(dataDir, "chrome-extension-token.bin"), cipher);
   const runner = new AgentRunner({
-    db, query, emit, keys, skills, claudePath: claudeExecutablePath(), appVersion: app.getVersion(),
+    db, query, emit, keys, skills, claudePath: claudeExecutablePath(), appVersion: app.getVersion(), attachDir: path.join(dataDir, "attachments"),
     chrome: { nodeBinary: process.execPath, cliPath: playwrightMcpCliPath(), ...profilePaths(dataDir), extensionToken: () => ext.get() },
     connections: conns,
     specialists: () => toAgentDefinitions(mergeSpecialists(db.getJson<SpecialistInfo[]>("specialists"))),

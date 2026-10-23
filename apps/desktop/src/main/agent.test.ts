@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import type { Options, Query, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { HubEvent } from "../shared/contract";
-import { agentEnv, AgentRunner } from "./agent";
+import { agentEnv, AgentRunner, checkImages } from "./agent";
 import { HubDb } from "./db";
 import type { KeyEntry } from "./keys";
 
@@ -385,4 +385,31 @@ test("Đồng ý luôn: chỉ cho đúng loại lệnh trong hội thoại; lệ
   await (await t2.runner.start({ ...input(t2.project.id), permission: "full" })).done;
   assert.deepEqual(results, ["allow", "allow", "allow"]);
   assert.equal(t2.events.filter((e) => e.type === "permission-request").length, 0);
+});
+
+test("ảnh đính kèm: gửi khối ảnh + chữ, lưu ảnh, kiểm loại và cỡ", async () => {
+  const png1x1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+  const prompts: unknown[] = [];
+  const t = setup(async function* () { yield init(); yield result(0.001); });
+  const dir = mkdtempSync(path.join(os.tmpdir(), "anh-"));
+  (t.runner as unknown as { deps: { attachDir: string; query: (a: { prompt: unknown }) => unknown } }).deps.attachDir = dir;
+  const q = (t.runner as unknown as { deps: { query: (a: { prompt: unknown; options?: unknown }) => unknown } }).deps;
+  const orig = q.query;
+  q.query = (a) => { prompts.push(a.prompt); return orig(a); };
+  const r = await t.runner.start({ ...input(t.project.id), prompt: "Lỗi này là gì?", images: [{ mediaType: "image/png", data: png1x1, name: "loi.png" }] });
+  assert.ok(r.ok, r.message);
+  await r.done;
+  const it = prompts[0] as AsyncIterable<{ message: { content: { type: string }[] } }>;
+  const msgs: { message: { content: { type: string; text?: string }[] } }[] = [];
+  for await (const m of it) msgs.push(m);
+  assert.deepEqual(msgs[0].message.content.map((c) => c.type), ["image", "text"]);
+  assert.equal(msgs[0].message.content[1].text, "Lỗi này là gì?");
+  assert.ok(existsSync(path.join(dir, `viec-${r.taskId}-1.png`)));
+  assert.match(t.db.conversationItems(r.conversationId!)[0].text, /Ảnh đính kèm: viec-\d+-1\.png/);
+  assert.equal(checkImages([{ mediaType: "image/bmp" as never, data: "AAAA" }]), "Chỉ nhận ảnh PNG, JPG, GIF, WEBP.");
+  assert.match(checkImages(Array(6).fill({ mediaType: "image/png", data: png1x1 }))!, /Tối đa 5/);
+  // Chỉ có ảnh, không có chữ: vẫn gửi được.
+  const r2 = await t.runner.start({ ...input(t.project.id), prompt: "", images: [{ mediaType: "image/png", data: png1x1 }] });
+  assert.ok(r2.ok);
+  await r2.done;
 });

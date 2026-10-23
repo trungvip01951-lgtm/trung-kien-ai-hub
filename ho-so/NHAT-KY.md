@@ -73,3 +73,9 @@ Mục mới nối xuống cuối. Mỗi mục: `## dd/mm/yyyy hh:mm — <tên AI
 
 ## 22/10/2026 23:07 — Claude-1
 - CI Windows bản 0.5.0-dev.4 xanh (https://github.com/trungvip01951-lgtm/trung-kien-ai-hub/actions/runs/39810102949): 72 test gồm điều khiển Notepad thật (mở, tìm cửa sổ, đọc cây phần tử, điền chữ bằng WM_SETTEXT, đọc lại, chụp màn hình), kiểm tra khói bản chưa cài và đã cài. Lần trước lỗi vì ô soạn thảo Notepad cổ điển báo kiểu "Pane" và không có ValuePattern; lỗi PowerShell giờ trả bằng chữ thay CLIXML. Đặt bản 0.5.0 để phát hành.
+
+## 23/10/2026 10:09 — Claude-1
+- Bản 0.5.1 theo phản hồi anh Trung:
+  - Nút "Mở trình duyệt của app để đăng nhập" giờ mở Chrome/Edge đã cài như bình thường (`--user-data-dir` hồ sơ riêng của app, mở sẵn accounts.google.com), không qua Playwright: Google chặn đăng nhập ("trình duyệt không an toàn") trên trình duyệt có cờ tự động hoá. Đóng cửa sổ thì app mới cho giao việc. (`src/main/index.ts`)
+  - Chat nhận ảnh: dán Ctrl+V, kéo thả, nút "Ảnh" (tối đa 5 ảnh, mỗi ảnh ≤ 5 MB, PNG/JPG/GIF/WEBP); gửi cho agent dạng khối ảnh + chữ (chế độ nhập dạng luồng của Agent SDK); ảnh lưu ở `%APPDATA%\trung-kien-ai-hub\attachments`, lịch sử ghi tên tệp. (`agent.ts`, `ChatPage.tsx`)
+- Kiểm: 72 test (thêm 1); SDK thật + máy chủ API giả: yêu cầu gửi API có khối ảnh image/png; giao diện: giả lập dán ảnh vào ô chat hiện ảnh thu nhỏ, 0 lỗi. Mở Chrome thật để đăng nhập CHƯA THỂ XÁC MINH trên cloud (cần máy anh).

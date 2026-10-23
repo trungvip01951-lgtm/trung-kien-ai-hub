@@ -87,3 +87,6 @@ Nghĩa: làm tiếp Mốc 4 và Mốc 5 không chờ duyệt giữa các mốc (
 > K cầm báo cáo gì cứ làm song thì báo nhé em
 
 Nghĩa: không báo tiến độ giữa chừng; chỉ báo khi xong để anh cập nhật.
+
+## 23/10/2026 — phiên Claude Code (web), sau khi cập nhật 0.5.0
+> a đăng nhập chome ko đc đăng nhập tk chome báo k bảo mật nên k cho đăng nhập. , ko gửi đc ảnh vào cuộc trò chuyện bằng ctrl + v vào cuộc trò chuyện

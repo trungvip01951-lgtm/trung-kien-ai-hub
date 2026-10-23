@@ -145,7 +145,12 @@ export interface Schedule extends ScheduleRule {
 }
 export interface QueueItem { id: number; input: StartTaskInput; source: string; status: "waiting" | "started" | "failed" | "cancelled"; message: string | null; taskId: number | null; createdAt: string }
 
+// Ảnh đính kèm câu hỏi (dán Ctrl+V, kéo thả, nút đính kèm). data: base64 không có tiền tố "data:".
+export type ImageType = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+export interface ImageAttachment { mediaType: ImageType; data: string; name?: string }
+
 export interface StartTaskInput {
+  images?: ImageAttachment[];
   conversationId: number | null; projectId: number; prompt: string;
   model: ModelId; effort: Effort; permission: PermissionLevel;
 }

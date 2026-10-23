@@ -118,3 +118,7 @@ textarea { resize: vertical; width: 100%; }
 .table-scroll { overflow-x: auto; }
 .dot { color: var(--ok); }
 .danger-text { color: var(--danger); }
+.attachments { display: flex; gap: 8px; flex-wrap: wrap; padding: 6px 16px 0; }
+.thumb { position: relative; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--panel); }
+.thumb img { display: block; height: 72px; max-width: 140px; object-fit: cover; }
+.thumb button { position: absolute; top: 2px; right: 4px; background: var(--panel); border-radius: 4px; padding: 0 4px; text-decoration: none; }

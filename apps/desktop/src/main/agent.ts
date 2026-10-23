@@ -1,7 +1,7 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { CanUseTool, HookCallback, Options, Query, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { HubEvent, ModelId, StartTaskInput, TaskRow, TaskStatus } from "../shared/contract";
+import type { CanUseTool, HookCallback, Options, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { HubEvent, ImageAttachment, ModelId, StartTaskInput, TaskRow, TaskStatus } from "../shared/contract";
 import { allowance, crossedWarning, cycleStart, dayStart, SDK_HEADROOM } from "./budget";
 import type { HubDb } from "./db";
 import { alwaysKey, decide, summarizeInput } from "./policy";
@@ -15,7 +15,37 @@ import { decideMemory, MEMORY_GUIDE, MEMORY_SERVER, memoryServer, type MemorySto
 import type { Decision } from "./policy";
 import { decideOffice, decideWindows, OFFICE_SERVER, WIN_SERVER } from "./local-tools";
 
-export type QueryFn = (args: { prompt: string; options?: Options }) => Query;
+export type QueryFn = (args: { prompt: string | AsyncIterable<SDKUserMessage>; options?: Options }) => Query;
+
+export const MAX_IMAGES = 5;
+const MAX_IMAGE_BASE64 = 7_000_000;   // khoảng 5 MB ảnh
+const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+const EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" };
+
+// Kiểm ảnh đính kèm; trả lý do nếu không hợp lệ.
+export function checkImages(images: ImageAttachment[] | undefined): string | null {
+  if (!images?.length) return null;
+  if (images.length > MAX_IMAGES) return `Tối đa ${MAX_IMAGES} ảnh một lần.`;
+  for (const im of images) {
+    if (!IMAGE_TYPES.has(im.mediaType)) return "Chỉ nhận ảnh PNG, JPG, GIF, WEBP.";
+    if (typeof im.data !== "string" || !/^[A-Za-z0-9+/=]+$/.test(im.data)) return "Dữ liệu ảnh không hợp lệ.";
+    if (im.data.length > MAX_IMAGE_BASE64) return "Ảnh lớn quá 5 MB, chụp nhỏ lại hoặc cắt bớt.";
+  }
+  return null;
+}
+
+// Câu hỏi có ảnh: gửi một tin nhắn gồm các khối ảnh rồi khối chữ (chế độ nhập dạng luồng của Agent SDK).
+export function promptWithImages(text: string, images: ImageAttachment[]): AsyncIterable<SDKUserMessage> {
+  return (async function* () {
+    yield {
+      type: "user", parent_tool_use_id: null,
+      message: { role: "user", content: [
+        ...images.map((im) => ({ type: "image" as const, source: { type: "base64" as const, media_type: im.mediaType, data: im.data } })),
+        { type: "text" as const, text },
+      ] },
+    } as SDKUserMessage;
+  })();
+}
 
 export interface AgentDeps {
   db: HubDb;
@@ -24,6 +54,7 @@ export interface AgentDeps {
   keys: { forUse(): KeyEntry[]; get(id: string): KeyEntry | null; markError(id: string, reason: string): void; markOk(id: string): void };
   emit: (e: HubEvent) => void;
   claudePath: string;
+  attachDir?: string;   // nơi lưu ảnh đính kèm
   // Kho Skills của app (nạp cho agent như plugin cục bộ); agent được đọc tệp trong đó không cần hỏi.
   skills?: { pluginPath(): string | null; readableRoot(): string };
   // Điều khiển trình duyệt (Playwright MCP); không có thì không nạp công cụ trình duyệt.
@@ -189,7 +220,10 @@ export class AgentRunner {
     if (!existsSync(project.path)) return { ok: false, message: `Thư mục dự án không còn tồn tại: ${project.path}` };
     const settingsProblem = checkSettings(settingsFiles(project.path));
     if (settingsProblem) return { ok: false, message: settingsProblem };
-    const prompt = input.prompt.trim();
+    const images = input.images ?? [];
+    const imageProblem = checkImages(images);
+    if (imageProblem) return { ok: false, message: imageProblem };
+    const prompt = input.prompt.trim() || (images.length ? "Xem ảnh đính kèm." : "");
     if (!prompt) return { ok: false, message: "Chưa nhập yêu cầu." };
 
     const u = this.usageNow();
@@ -285,7 +319,18 @@ export class AgentRunner {
       ...(resume ? { resume } : {}),
     });
 
-    db.addItem({ taskId, conversationId: conv.id, kind: "user", text: prompt });
+    // Ảnh đính kèm lưu vào thư mục dữ liệu app để xem lại; lịch sử ghi tên tệp.
+    const saved: string[] = [];
+    if (images.length && this.deps.attachDir) {
+      mkdirSync(this.deps.attachDir, { recursive: true });
+      images.forEach((im, i) => {
+        const f = path.join(this.deps.attachDir!, `viec-${taskId}-${i + 1}.${EXT[im.mediaType]}`);
+        writeFileSync(f, Buffer.from(im.data, "base64"));
+        saved.push(path.basename(f));
+      });
+    }
+    db.addItem({ taskId, conversationId: conv.id, kind: "user",
+      text: images.length ? `${prompt}\n[Ảnh đính kèm: ${saved.length ? saved.join(", ") : `${images.length} ảnh`}]` : prompt });
     for (const note of connections.notes) db.addItem({ taskId, conversationId: conv.id, kind: "system", text: note });
     const run: Running = { taskId, conversationId: conv.id, allowanceUsd: u.allowedUsd, usesBrowser: !!chrome,
       query: null as unknown as Query, abort: new AbortController(), stopRequested: false, budgetHit: false };
@@ -297,7 +342,8 @@ export class AgentRunner {
     const convId = conv.id;
     const done = this.runWithKeys(taskId, convId, keys, u.allowedUsd, (key, spent) => {
       const abort = new AbortController();
-      const q = this.deps.query({ prompt, options: makeOptions(key.key, abort, u.allowedUsd - spent) });
+      // Mỗi lần thử (mỗi key) tạo luồng câu hỏi mới: luồng chỉ đọc được một lần.
+      const q = this.deps.query({ prompt: images.length ? promptWithImages(prompt, images) : prompt, options: makeOptions(key.key, abort, u.allowedUsd - spent) });
       run.query = q;
       run.abort = abort;
       return { q, prevTotal, prevOk };

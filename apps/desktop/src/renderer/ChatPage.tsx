@@ -1,8 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MODELS } from "../shared/contract";
 import type {
-  ChatItem, Conversation, Effort, HubEvent, ModelId, PermissionLevel, Project, Settings,
+  ChatItem, Conversation, Effort, HubEvent, ImageAttachment, ImageType, ModelId, PermissionLevel, Project, Settings,
 } from "../shared/contract";
+
+const IMAGE_TYPES: ImageType[] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+const MAX_IMAGES = 5;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+// Đọc tệp ảnh thành base64 (không có tiền tố data:).
+function readImage(f: File): Promise<ImageAttachment> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve({ mediaType: f.type as ImageType, data: String(r.result).replace(/^data:[^,]*,/, ""), name: f.name || "anh-dan.png" });
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(f);
+  });
+}
 import { EFFORTS, PERMISSIONS, firstLine, usd } from "./util";
 
 type Entry =
@@ -47,6 +61,22 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
   const [effort, setEffort] = useState<Effort>("medium");
   const [permission, setPermission] = useState<PermissionLevel>("read");
   const [prompt, setPrompt] = useState("");
+  const [images, setImages] = useState<ImageAttachment[]>([]);
+  const fileRef = useRef<HTMLInputElement>(null);
+  // Thêm ảnh từ dán (Ctrl+V), kéo thả hoặc chọn tệp; bỏ qua tệp không phải ảnh, báo ảnh quá lớn.
+  const addFiles = async (files: File[]) => {
+    const imgs = files.filter((f) => IMAGE_TYPES.includes(f.type as ImageType));
+    if (!imgs.length) return false;
+    const big = imgs.filter((f) => f.size > MAX_IMAGE_BYTES);
+    if (big.length) setError(`Ảnh lớn quá 5 MB: ${big.map((f) => f.name).join(", ")}.`);
+    const ok = await Promise.all(imgs.filter((f) => f.size <= MAX_IMAGE_BYTES).map(readImage));
+    setImages((cur) => {
+      const next = [...cur, ...ok].slice(0, MAX_IMAGES);
+      if (cur.length + ok.length > MAX_IMAGES) setError(`Tối đa ${MAX_IMAGES} ảnh một lần.`);
+      return next;
+    });
+    return true;
+  };
   const [hasKey, setHasKey] = useState(true);
   // Nhiều hội thoại chạy cùng lúc: hội thoại → việc đang chạy.
   const [runningByConv, setRunningByConv] = useState<Map<number, number>>(new Map());
@@ -212,19 +242,22 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
 
   const send = async () => {
     const text = prompt.trim();
-    if (!text || !hasKey || projectId == null) return;
+    if ((!text && !images.length) || !hasKey || projectId == null) return;
+    const imgs = images;
     setError("");
     try {
-      const r = await window.hub.startTask({ conversationId: convId, projectId, prompt: text, model, effort, permission });
+      const r = await window.hub.startTask({ conversationId: convId, projectId, prompt: text, model, effort, permission, images: imgs });
       if (!r.ok && r.busy) {
         // Đang bận (hội thoại này đang chạy hoặc đủ số việc song song): xếp hàng, tự chạy khi có chỗ.
-        await window.hub.enqueueTask({ conversationId: convId, projectId, prompt: text, model, effort, permission });
+        await window.hub.enqueueTask({ conversationId: convId, projectId, prompt: text, model, effort, permission, images: imgs });
         setPrompt("");
+        setImages([]);
         setEntries((es) => [...es, { key: nextKey(), kind: "note", tone: "info", text: `Đã xếp hàng: "${firstLine(text, 60)}". ${r.message ?? ""} Việc sẽ tự chạy khi có chỗ (xem mục Công việc đang chạy).` }]);
         return;
       }
       if (!r.ok) { setError(r.message ?? "Không gửi được."); return; }
       setPrompt("");
+      setImages([]);
       setUsage(null);
       if (r.taskId != null && r.conversationId != null) markRunning(r.taskId, r.conversationId, true);
       if (r.conversationId != null && r.conversationId !== convId) {
@@ -324,19 +357,39 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
           </div>
 
           {error && <div className="alert danger">{error}</div>}
-          <div className="composer">
+          {images.length > 0 && (
+            <div className="attachments">
+              {images.map((im, i) => (
+                <div key={i} className="thumb">
+                  <img src={`data:${im.mediaType};base64,${im.data}`} alt={im.name ?? ""} />
+                  <button className="link" title="Bỏ ảnh này" onClick={() => setImages((cur) => cur.filter((_, j) => j !== i))}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="composer"
+            onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
+            onDrop={(e) => { const fs = Array.from(e.dataTransfer.files); if (fs.length) { e.preventDefault(); void addFiles(fs); } }}>
             <textarea
               value={prompt}
               rows={3}
-              placeholder={noProject ? "Hãy thêm một dự án trước." : "Nhập yêu cầu… (Enter để gửi, Shift+Enter để xuống dòng)"}
+              placeholder={noProject ? "Hãy thêm một dự án trước." : "Nhập yêu cầu… (Enter gửi, Shift+Enter xuống dòng, Ctrl+V dán ảnh)"}
               onChange={(e) => setPrompt(e.target.value)}
+              // Ctrl+V ảnh (ảnh chụp màn hình, ảnh chép từ web/Zalo): đưa vào ảnh đính kèm.
+              onPaste={(e) => {
+                const fs = Array.from(e.clipboardData.items).filter((it) => it.kind === "file").map((it) => it.getAsFile()).filter((f): f is File => !!f);
+                if (fs.some((f) => IMAGE_TYPES.includes(f.type as ImageType))) { e.preventDefault(); void addFiles(fs); }
+              }}
               // Enter gửi, Shift+Enter xuống dòng; đang gõ dở dấu (bộ gõ tiếng Việt) thì không gửi.
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); void send(); }
               }}
             />
             <div className="col">
-              <button className="primary" disabled={!hasKey || noProject || !prompt.trim()} onClick={send}>{running ? "Xếp hàng" : "Gửi"}</button>
+              <button className="primary" disabled={!hasKey || noProject || (!prompt.trim() && !images.length)} onClick={send}>{running ? "Xếp hàng" : "Gửi"}</button>
+              <button title="Đính kèm ảnh (hoặc dán Ctrl+V, kéo thả vào ô chat)" disabled={images.length >= MAX_IMAGES} onClick={() => fileRef.current?.click()}>Ảnh</button>
+              <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden
+                onChange={(e) => { void addFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
               {running && <button className="danger-btn" onClick={stop}>Dừng</button>}
             </div>
           </div>

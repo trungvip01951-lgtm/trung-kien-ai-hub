@@ -41,3 +41,8 @@
 ## 7. "Đồng ý luôn" theo tên công cụ quá rộng — 22/10/2026 — Claude-1
 - Chuyện gì xảy ra: bản nháp 0.5.0 cho "Đồng ý luôn" theo tên công cụ: đồng ý `npm test` là cho mọi lệnh Bash, đồng ý mở Notepad là cho mở mọi chương trình. Rà soát độc lập phát hiện, chưa phát hành.
 - Cách tránh từ nay: quyền "luôn cho" phải hẹp đúng thứ anh nhìn thấy trong hộp hỏi (lệnh, thư mục, tên miền, cửa sổ, chương trình + tham số); thao tác nguy hiểm không có nút này. Có test.
+
+## 8. Mở trình duyệt đăng nhập bằng công cụ tự động hoá — 23/10/2026 — Claude-1
+- Chuyện gì xảy ra: bản 0.4.0–0.5.0 mở cửa sổ "để anh tự đăng nhập" bằng Playwright; Google báo "trình duyệt hoặc ứng dụng này có thể không an toàn" và không cho đăng nhập. Anh Trung báo sau khi cài.
+- Nguyên nhân: trình duyệt do Playwright mở mang cờ tự động hoá; Google chặn đăng nhập trên trình duyệt đó. Không thử với trang đăng nhập Google trước khi phát hành.
+- Cách tránh từ nay: chỗ người dùng tự đăng nhập phải mở trình duyệt thường (chạy thẳng chrome.exe). Tính năng gắn với dịch vụ thật phải ghi rõ CHƯA THỂ XÁC MINH và nói trước với anh rủi ro này.
