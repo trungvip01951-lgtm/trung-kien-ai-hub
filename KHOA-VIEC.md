@@ -12,4 +12,4 @@ Trước khi ghi: thêm 1 dòng. Xong hoặc dừng: điền giờ nhả và k�
 | Claude-1 (Claude Code, phiên web) | apps/desktop: báo lỗi key chưa gắn workspace, bản 0.2.1 | 22/10/2026 20:47 | 22/10/2026 20:48 | Xong, đăng Release v0.2.1 |
 | Claude-1 (Claude Code, phiên web mới) | Toàn bộ repo: Mốc 3 (Skills, quét dự án) rồi Mốc 2 (Chrome) | 22/10/2026 21:02 | 22/10/2026 21:42 | Xong bản 0.3.0 và 0.4.0, bàn giao ở ho-so/BAN-GIAO.md |
 | Claude-1 (Claude Code, phiên web) | Toàn bộ repo: bản 0.5.0 (nhiều hội thoại song song, đủ quyền, Đồng ý luôn, kết nối Windsor/Google) | 22/10/2026 22:14 | 22/10/2026 23:07 | Xong bản 0.5.0 (gồm Mốc 4, Mốc 5), bàn giao ở ho-so/BAN-GIAO.md |
-| Claude-1 (Claude Code, phiên web) | Toàn bộ repo: bản 0.6.0 (giao diện như Claude, mở tệp, lỗi trả lời, dự án báo cáo cty) | 23/10/2026 11:56 | | |
+| Claude-1 (Claude Code, phiên web) | Toàn bộ repo: bản 0.6.0 (giao diện như Claude, mở tệp, lỗi trả lời, dự án báo cáo cty) | 23/10/2026 11:56 | 23/10/2026 12:12 | Xong bản 0.6.0 (đã commit, chờ đẩy lên GitHub), bàn giao ở ho-so/BAN-GIAO.md |

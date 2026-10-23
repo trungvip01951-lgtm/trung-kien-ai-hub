@@ -69,6 +69,7 @@ export type ItemKind = "user" | "assistant" | "tool_use" | "tool_result" | "syst
 export interface ChatItem {
   id: number; taskId: number; kind: ItemKind; text: string;
   toolName?: string; isError?: boolean; createdAt: string;
+  toolUseId?: string;        // mã bước gọi công cụ (ghép bước gọi với kết quả)
 }
 
 export interface Limits {

@@ -46,3 +46,11 @@
 - Chuyện gì xảy ra: bản 0.4.0–0.5.0 mở cửa sổ "để anh tự đăng nhập" bằng Playwright; Google báo "trình duyệt hoặc ứng dụng này có thể không an toàn" và không cho đăng nhập. Anh Trung báo sau khi cài.
 - Nguyên nhân: trình duyệt do Playwright mở mang cờ tự động hoá; Google chặn đăng nhập trên trình duyệt đó. Không thử với trang đăng nhập Google trước khi phát hành.
 - Cách tránh từ nay: chỗ người dùng tự đăng nhập phải mở trình duyệt thường (chạy thẳng chrome.exe). Tính năng gắn với dịch vụ thật phải ghi rõ CHƯA THỂ XÁC MINH và nói trước với anh rủi ro này.
+
+## 9. AI chính thiếu lời dặn môi trường nên hay chạy sai lệnh — 23/10/2026 — Claude-1
+- Chuyện gì xảy ra: từ 0.1.0 app chỉ gửi lời dặn hệ thống tối giản (Agent SDK mặc định một câu). AI không biết đang ở Windows, thư mục nào, cách dùng công cụ → chạy lệnh kiểu Linux, lỗi "Exit code 2" liên tục; anh Trung thấy "hay bị lỗi lúc trả lời".
+- Cách tránh từ nay: dùng `systemPrompt: { type: "preset", preset: "claude_code", append }`. Khi đổi cách gọi SDK phải đo nội dung thực gửi lên API (máy chủ API giả), không đoán theo tên tham số.
+
+## 10. Cắt chuỗi JSON làm hỏng dữ liệu bước công cụ — 23/10/2026 — Claude-1
+- Chuyện gì xảy ra: bản nháp 0.6.0 cắt dữ liệu vào của bước công cụ ở 2000 ký tự rồi thêm "…" → JSON hỏng, tệp dài không có thẻ Mở. Rà soát độc lập phát hiện, chưa phát hành.
+- Cách tránh từ nay: cắt từng giá trị chuỗi bên trong (`clipInput`), không cắt chuỗi đã mã hoá. Có test.

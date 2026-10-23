@@ -18,7 +18,7 @@ import { officeServer, windowsServer } from "./local-tools";
 import { nextRun, validateRule } from "./schedule";
 import { setSelfPids } from "./windows";
 import { makePdf } from "./pdf";
-import { checkOpenable } from "./open-file";
+import { checkOpenable, resolvePath } from "./open-file";
 import { mergeSpecialists, toAgentDefinitions } from "./specialists";
 import type { SpecialistInfo } from "../shared/contract";
 import { claudeExecutablePath, playwrightMcpCliPath } from "./sdk-path";
@@ -30,7 +30,12 @@ const smoke = process.argv.includes("--smoke-test");
 const outArg = process.argv.find((a) => a.startsWith("--smoke-out="));
 
 let win: BrowserWindow | null = null;
-const emit = (e: HubEvent) => win?.webContents.send("hub-event", e);
+// Việc nào xong (kể cả việc gửi thẳng từ chat) thì cho hàng đợi chạy tiếp ngay, không chờ nhịp 30 giây.
+let afterTask: () => void = () => undefined;
+const emit = (e: HubEvent) => {
+  win?.webContents.send("hub-event", e);
+  if (e.type === "task-finished") setImmediate(() => afterTask());
+};
 
 // Phiên Claude Code cũ của một thư mục (đọc ~/.claude/projects bằng Agent SDK, chỉ đọc).
 async function oldSessions(dir: string, limit = 50): Promise<OldSession[]> {
@@ -212,7 +217,7 @@ function registerIpc(db: HubDb, keys: KeyRing, runner: AgentRunner, skills: Skil
     const r = checkOpenable(String(p ?? ""), base);
     if (!r.ok) {
       // Tệp chạy chương trình vẫn cho mở thư mục chứa nó.
-      if (folder) { const f = path.resolve(base ?? "", String(p ?? "")); if (existsSync(f)) { shell.showItemInFolder(f); return { ok: true, message: "" }; } }
+      if (folder) { const f = resolvePath(String(p ?? ""), base); if (f && existsSync(f)) { shell.showItemInFolder(f); return { ok: true, message: "" }; } }
       return r;
     }
     if (folder) { shell.showItemInFolder(r.file); return { ok: true, message: "" }; }
@@ -352,6 +357,7 @@ async function startApp() {
   });
   const jobs = new Jobs(db, runner, emit, () => new Date(),
     () => (browserWindowOpen ? "Trình duyệt của app đang mở để đăng nhập" : null));
+  afterTask = () => void jobs.pump();
   setSelfPids(() => (win && !win.isDestroyed() ? [win.webContents.getOSProcessId()] : []));
   registerIpc(db, keys, runner, skills, conns, ext, jobs, backups);
 

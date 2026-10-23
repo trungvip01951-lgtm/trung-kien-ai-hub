@@ -13,4 +13,13 @@ test("mở tệp từ khung chat: tương đối theo dự án, chặn tệp ch�
   assert.equal(checkOpenable("cai.exe", dir).ok, false);
   assert.equal(checkOpenable("khong-co.pdf", dir).ok, false);
   assert.equal(checkOpenable("", dir).ok, false);
+  // Chỉ mở loại tệp tài liệu/bảng/ảnh; tệp chương trình python, dạng lách đuôi đều bị chặn.
+  writeFileSync(path.join(dir, "chay.py"), "x");
+  assert.equal(checkOpenable("chay.py", dir).ok, false);
+  assert.equal(checkOpenable("cai.exe.", dir).ok, false);
+  assert.equal(checkOpenable("cai.exe::$DATA", dir).ok, false);
+  // Liên kết file:///, mã %xx và dấu % thật.
+  writeFileSync(path.join(dir, "Lãi 100%.xlsx"), "x");
+  assert.equal(checkOpenable("Lãi 100%.xlsx", dir).ok, true);
+  assert.equal(checkOpenable(`file://${path.join(dir, "bao-cao.xlsx").replace(/ /g, "%20")}`, null).ok, true);
 });

@@ -6,7 +6,8 @@ import type {
 
 const IMAGE_TYPES: ImageType[] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 const MAX_IMAGES = 5;
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+// API nhận tối đa 5 MB mỗi ảnh tính trên chuỗi base64 (dài hơn ảnh gốc 4/3 lần).
+const MAX_IMAGE_BYTES = Math.floor((5 * 1024 * 1024 * 3) / 4);
 
 // Đọc tệp ảnh thành base64 (không có tiền tố data:).
 function readImage(f: File): Promise<ImageAttachment> {
@@ -69,7 +70,7 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
     const imgs = files.filter((f) => IMAGE_TYPES.includes(f.type as ImageType));
     if (!imgs.length) return false;
     const big = imgs.filter((f) => f.size > MAX_IMAGE_BYTES);
-    if (big.length) setError(`Ảnh lớn quá 5 MB: ${big.map((f) => f.name).join(", ")}.`);
+    if (big.length) setError(`Ảnh lớn quá 3,7 MB (giới hạn của API): ${big.map((f) => f.name).join(", ")}.`);
     const ok = await Promise.all(imgs.filter((f) => f.size <= MAX_IMAGE_BYTES).map(readImage));
     setImages((cur) => {
       const next = [...cur, ...ok].slice(0, MAX_IMAGES);
@@ -88,6 +89,7 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
   const [usageEst, setUsageEst] = useState(true);
   const taskConv = useRef(new Map<number, number>());     // việc → hội thoại
   const convRef = useRef<number | null>(null);
+  const drafts = useRef(new Map<number, string>());       // việc → chữ đang gõ dở (giữ cả khi đang xem hội thoại khác)
   const bottomRef = useRef<HTMLDivElement>(null);
   const projectRef = useRef<number | null>(null);
   projectRef.current = projectId;
@@ -139,9 +141,13 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
       if (my !== loadSeq.current) return;             // đã chuyển sang hội thoại khác trong lúc chờ
       const maxId = items.reduce((m, it) => Math.max(m, it.id), 0);
       // Giữ các dòng đến bằng sự kiện trong lúc chờ tải (dòng mới hơn và bản nháp đang gõ).
+      // Bản nháp của việc đang chạy trong hội thoại này: lấy đủ chữ đã đến (kể cả lúc đang xem hội thoại khác).
+      const running = [...taskConv.current].filter(([, c]) => c === id).map(([t]) => t);
+      const draftEntries: Entry[] = running.filter((t) => drafts.current.get(t)).map((t) => ({ key: `d${t}`, kind: "draft", taskId: t, text: drafts.current.get(t)! }));
       setEntries((prev) => [
         ...items.map((item): Entry => ({ key: `i${item.id}`, kind: "item", item })),
-        ...prev.filter((x) => (x.kind === "item" && x.item.id > maxId) || x.kind === "draft"),
+        ...prev.filter((x) => x.kind === "item" && x.item.id > maxId),
+        ...draftEntries,
       ]);
     } catch (e) {
       if (my === loadSeq.current) setEntries([{ key: nextKey(), kind: "note", text: String(e), tone: "danger" }]);
@@ -189,6 +195,7 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
           setEntries((es) => [...es, { key: nextKey(), kind: "note", tone: "danger", text: `Việc xếp hàng không chạy được: ${e.message}` }]);
           break;
         case "text-delta": {
+          drafts.current.set(e.taskId, (drafts.current.get(e.taskId) ?? "") + e.text);
           if (!isShown(e.taskId)) break;
           setEntries((es) => {
             const last = es[es.length - 1];
@@ -201,6 +208,7 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
         }
         case "item": {
           const it = e.item;
+          if (it.kind === "assistant") drafts.current.delete(it.taskId);
           if (!isShown(it.taskId)) break;
           setEntries((es) => {
             if (es.some((x) => x.kind === "item" && x.item.id === it.id)) return es;
@@ -225,11 +233,10 @@ export function ChatPage({ settings, keyTick, openRequest, onGoSettings }: {
           break;
         case "task-finished": {
           const conv = taskConv.current.get(e.task.id) ?? e.task.conversationId;
+          drafts.current.delete(e.task.id);
+          // Dòng kết thúc ("Xong. Chi phí…") đã đến bằng sự kiện item; ở đây chỉ dọn câu hỏi tạm và bản nháp.
           if (conv === convRef.current) {
-            setEntries((es) => [
-              ...es.filter((x) => x.kind !== "pending-user" && x.kind !== "draft"),
-              { key: nextKey(), kind: "note", text: e.message, tone: e.task.status === "done" ? "info" : "danger" },
-            ]);
+            setEntries((es) => es.filter((x) => x.kind !== "pending-user" && !(x.kind === "draft" && x.taskId === e.task.id)));
           }
           markRunning(e.task.id, conv, false);
           setPerms((q) => q.filter((p) => p.taskId !== e.task.id));

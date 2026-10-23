@@ -67,3 +67,13 @@ Mục mới nối xuống cuối, theo mẫu chung (skill `quy-tac-lam-viec-chun
 - Sao lưu để hoàn tác: tag v0.4.0.
 - Khoá đã nhả: dòng 0.5.0 trong `KHOA-VIEC.md`.
 - Việc cần anh Trung: cập nhật lên 0.5.0; thử các mục ở báo cáo cuối phiên; trả lời câu hỏi Zalo.
+
+## BÀN GIAO: Trung Kiên AI Hub · Claude-1 · 23/10/2026 12:12
+
+- Việc đã làm: bản 0.6.0 (khung chat như app Claude, thẻ mở tệp, sửa nguyên nhân lỗi lúc trả lời, 13 lỗi từ rà soát, chỉnh cho dự án báo cáo cty). Chi tiết: `ho-so/NHAT-KY.md` mục 23/10/2026 12:12.
+- Làm tới đâu: nhánh `claude/intelligent-hopper-v2t54v`, đã commit trên máy cloud. Đẩy lên GitHub bị từ chối (403: mất quyền truy cập kho) — chờ anh kết nối lại GitHub rồi đẩy để CI đăng Release v0.6.0.
+- Nghiệm thu: test 77/77, kiểm tra khói 8/8, giao diện bằng Chromium ĐẠT; chạy API thật, mở tệp trên Windows thật, kết nối Google thật CHƯA THỂ XÁC MINH.
+- Còn lại: Zalo/AI Desk chờ anh quyết.
+- Sao lưu để hoàn tác: tag v0.5.1.
+- Khoá đã nhả: dòng 0.6.0 trong `KHOA-VIEC.md`.
+- Việc cần anh Trung: kết nối lại GitHub; cập nhật lên 0.6.0; tải skill bao-cao-cty lên mục Skills; thêm thư mục `D:\ChatGPT\Báo cáo công ty` làm dự án.

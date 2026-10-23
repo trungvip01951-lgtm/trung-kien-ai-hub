@@ -85,5 +85,11 @@ test("Đồng ý luôn cho lệnh chạy chương trình: theo đúng tệp chư
   assert.equal(k("python3 -B -X utf8 kho/bin/bc.py khoi-dong"), k("python3 -B -X utf8 kho/bin/bc.py viec-mo --id V088"));
   assert.notEqual(k("python3 -B -X utf8 kho/bin/bc.py khoi-dong"), k("python3 -B -X utf8 kho/bin/tu_tra.py viec"));
   assert.equal(k('python -c "import os"'), 'Bash=python -c "import os"');
-  assert.equal(k("python -m pip install x"), "Bash~python -m pip");
+  assert.equal(k("python -m pip install x"), "Bash=python -m pip install x");
+  // Trình chạy lệnh tuỳ ý: chỉ đúng nguyên lệnh, không mở rộng sang lệnh khác.
+  assert.notEqual(k("cmd /c del a.txt"), k("cmd /c rmdir /s /q D:\\Data"));
+  assert.notEqual(k("powershell -ExecutionPolicy Bypass -File a.ps1"), k("powershell -ExecutionPolicy Bypass -Command Remove-Item D:\\Data"));
+  assert.equal(k("powershell -ExecutionPolicy Bypass -File a.ps1"), k("powershell -NoProfile -ExecutionPolicy Bypass -File a.ps1 -x 1"));
+  assert.equal(k('bash -lc "python a.py"'), 'Bash=bash -lc "python a.py"');
+  assert.equal(k("python install.txt"), "Bash=python install.txt");
 });

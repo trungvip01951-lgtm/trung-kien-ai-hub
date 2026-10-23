@@ -12,8 +12,10 @@ const SERVER_NAME: Record<string, string> = {
 };
 const FILE_WRITE = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
 const OFFICE_WRITE = new Set(["excel_write", "word_create", "word_replace", "pdf_from_html"]);
-// Đường dẫn tệp có đuôi (Windows hoặc tương đối), để biến thành chỗ bấm mở.
-const PATH_RE = /^(?:[a-zA-Z]:[\\/]|\\\\|\.{0,2}[\\/])?[^\s<>"|?*]*[\\/]?[^\s<>"|?*\\/]+\.[A-Za-z0-9]{1,6}$/;
+// Đường dẫn tệp tài liệu (Windows hoặc tương đối, cho phép dấu cách khi có thư mục), để biến thành chỗ bấm mở.
+// Chỉ nhận đuôi tài liệu, bảng, ảnh, chữ: "0.3.308" hay "v1.2" không thành chỗ bấm.
+const DOC_EXT = "(?:xlsx|xlsm|xls|csv|tsv|docx|doc|pdf|pptx|ppt|odt|ods|rtf|txt|md|log|json|xml|ya?ml|html?|png|jpe?g|gif|webp|bmp|svg|mp4|mp3|wav|zip)";
+const PATH_RE = new RegExp(`^(?:(?:[a-zA-Z]:[\\\\/]|\\\\\\\\|\\.{0,2}[\\\\/]|[^\\s\\\\/<>"|?*]+[\\\\/])[^<>"|?*\\n]*|[^\\s\\\\/<>"|?*]+)\\.${DOC_EXT}$`, "i");
 
 function parse(text: string): Record<string, unknown> {
   try { return JSON.parse(text) as Record<string, unknown>; } catch { return {}; }
@@ -59,8 +61,10 @@ export function filesFromSteps(items: ChatItem[]): string[] {
 }
 
 function open(p: string, projectId: number | null, folder = false, onError?: (m: string) => void) {
-  void window.hub.openFile(p, projectId, folder).then((r) => { if (!r.ok) onError?.(r.message); });
+  window.hub.openFile(p, projectId, folder).then((r) => { if (!r.ok) onError?.(r.message); }, (e) => onError?.(String(e)));
 }
+// Giữ nguyên đường dẫn tệp trong liên kết (mặc định react-markdown xoá "D:/…", "file:///…"); chỉ bỏ javascript:.
+const keepUrl = (u: string) => (/^\s*(javascript|vbscript|data):/i.test(u) ? "" : u);
 
 export function FileCards({ files, projectId, onError }: { files: string[]; projectId: number | null; onError: (m: string) => void }) {
   if (!files.length) return null;
@@ -84,7 +88,7 @@ export function FileCards({ files, projectId, onError }: { files: string[]; proj
 export function MarkdownText({ text, projectId, onError }: { text: string; projectId: number | null; onError: (m: string) => void }) {
   return (
     <div className="md">
-      <Markdown remarkPlugins={[remarkGfm]} components={{
+      <Markdown remarkPlugins={[remarkGfm]} urlTransform={keepUrl} components={{
         a: ({ href, children }) => (
           <a href={href} onClick={(e) => {
             if (href && !/^https?:/i.test(href)) { e.preventDefault(); open(href, projectId, false, onError); }
@@ -110,7 +114,8 @@ export function StepGroup({ items }: { items: ChatItem[] }) {
   for (const it of items) {
     if (it.kind === "tool_use") steps.push({ use: it });
     else if (it.kind === "tool_result") {
-      const s = [...steps].reverse().find((x) => !x.result);
+      // Ghép theo mã bước gọi (nhiều công cụ chạy cùng lúc); dữ liệu cũ chưa có mã thì ghép bước đầu tiên còn chờ.
+      const s = it.toolUseId ? steps.find((x) => x.use.toolUseId === it.toolUseId && !x.result) : steps.find((x) => !x.result && !x.use.toolUseId);
       if (s) s.result = it; else steps.push({ use: it });
     }
   }

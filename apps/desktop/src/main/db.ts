@@ -90,6 +90,10 @@ export class HubDb {
           INSERT INTO memory_fts(memory_fts, rowid, title, content) VALUES ('delete', old.id, old.title, old.content);
           INSERT INTO memory_fts(rowid, title, content) VALUES (new.id, new.title, new.content); END;`);
       },
+      // 0.6.0: mã bước gọi công cụ, để ghép đúng kết quả với bước gọi khi nhiều công cụ chạy cùng lúc.
+      () => {
+        if (!cols("items").includes("tool_use_id")) this.db.exec("ALTER TABLE items ADD COLUMN tool_use_id TEXT");
+      },
     ];
     const v = Number((this.db.prepare("PRAGMA user_version").get() as Row).user_version);
     for (let i = v; i < steps.length; i++) {
@@ -333,12 +337,12 @@ export class HubDb {
     return Number(r.s);
   }
 
-  addItem(i: { taskId: number; conversationId: number | null; kind: ItemKind; text: string; toolName?: string; isError?: boolean }): ChatItem {
+  addItem(i: { taskId: number; conversationId: number | null; kind: ItemKind; text: string; toolName?: string; isError?: boolean; toolUseId?: string }): ChatItem {
     const t = now();
-    const r = this.db.prepare("INSERT INTO items(task_id, conversation_id, kind, text, tool_name, is_error, created_at) VALUES(?,?,?,?,?,?,?)")
-      .run(i.taskId, i.conversationId, i.kind, i.text, i.toolName ?? null, i.isError ? 1 : 0, t);
+    const r = this.db.prepare("INSERT INTO items(task_id, conversation_id, kind, text, tool_name, is_error, created_at, tool_use_id) VALUES(?,?,?,?,?,?,?,?)")
+      .run(i.taskId, i.conversationId, i.kind, i.text, i.toolName ?? null, i.isError ? 1 : 0, t, i.toolUseId ?? null);
     if (i.conversationId) this.db.prepare("UPDATE conversations SET updated_at=? WHERE id=?").run(t, i.conversationId);
-    return { id: Number(r.lastInsertRowid), taskId: i.taskId, kind: i.kind, text: i.text, toolName: i.toolName, isError: !!i.isError, createdAt: t };
+    return { id: Number(r.lastInsertRowid), taskId: i.taskId, kind: i.kind, text: i.text, toolName: i.toolName, isError: !!i.isError, createdAt: t, toolUseId: i.toolUseId };
   }
 
   conversationItems(conversationId: number): ChatItem[] {
@@ -393,5 +397,6 @@ function toSchedule(r: Row): Schedule {
 }
 function toItem(r: Row): ChatItem {
   return { id: Number(r.id), taskId: Number(r.task_id), kind: r.kind as ItemKind, text: String(r.text),
-    toolName: (r.tool_name as string) ?? undefined, isError: Number(r.is_error) === 1, createdAt: String(r.created_at) };
+    toolName: (r.tool_name as string) ?? undefined, isError: Number(r.is_error) === 1, createdAt: String(r.created_at),
+    toolUseId: (r.tool_use_id as string) ?? undefined };
 }

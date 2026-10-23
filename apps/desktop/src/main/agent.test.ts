@@ -5,7 +5,7 @@ import path from "node:path";
 import { test } from "node:test";
 import type { Options, Query, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { HubEvent } from "../shared/contract";
-import { agentEnv, AgentRunner, checkImages } from "./agent";
+import { agentEnv, AgentRunner, checkImages, clipInput } from "./agent";
 import { HubDb } from "./db";
 import type { KeyEntry } from "./keys";
 
@@ -413,4 +413,19 @@ test("ảnh đính kèm: gửi khối ảnh + chữ, lưu ảnh, kiểm loại v
   const r2 = await t.runner.start({ ...input(t.project.id), prompt: "", images: [{ mediaType: "image/png", data: png1x1 }] });
   assert.ok(r2.ok);
   await r2.done;
+});
+
+test("lưu dữ liệu vào bước công cụ: cắt từng chuỗi dài, JSON vẫn đọc được", () => {
+  const s = clipInput({ file_path: "D:/Bao cao/x.md", content: "a".repeat(5000) });
+  const o = JSON.parse(s) as { file_path: string; content: string };
+  assert.equal(o.file_path, "D:/Bao cao/x.md");
+  assert.ok(o.content.length < 1600);
+});
+
+test("ảnh: nhận theo nội dung, không theo đuôi tệp", () => {
+  const webp = Buffer.concat([Buffer.from("RIFF0000WEBPVP8 "), Buffer.alloc(8)]).toString("base64");
+  const im = { mediaType: "image/jpeg" as const, data: webp, name: "zalo.jpg" };
+  assert.equal(checkImages([im]), null);
+  assert.equal(im.mediaType, "image/webp");
+  assert.notEqual(checkImages([{ mediaType: "image/png", data: Buffer.from("not an image").toString("base64"), name: "x.png" }]), null);
 });

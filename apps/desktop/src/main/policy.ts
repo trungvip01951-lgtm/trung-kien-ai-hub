@@ -53,14 +53,22 @@ export function alwaysKey(toolName: string, input: unknown, projectDir: string):
     const words = cmd.split(/\s+/);
     // Trình chạy chương trình (python, node, powershell…): tính theo đúng tệp chương trình, không theo 2 từ đầu
     // ("python3 -B" sẽ cho mọi chương trình python).
-    if (/^(python[\d.]*|py|node|pwsh|powershell|bash|sh|cmd)(\.exe)?$/i.test(path.basename(words[0]))) {
+    const exe = path.basename(words[0].replace(/\\/g, "/")).toLowerCase().replace(/\.exe$/, "");
+    // Trình chạy lệnh tuỳ ý (cmd /c, bash -c, powershell -Command, -m pip…): chỉ "Đồng ý luôn" đúng nguyên lệnh.
+    if (/^(cmd|bash|sh|zsh|wsl)$/.test(exe)) return `${toolName}=${cmd}`;
+    if (/^(python[\d.]*|py|node|pwsh|powershell)$/.test(exe)) {
       for (let k = 1; k < words.length; k++) {
         const w = words[k];
-        if (/^-[XW]$/.test(w)) { k++; continue; }
-        if (/^-(c|e|Command|EncodedCommand)$/i.test(w)) return `${toolName}=${cmd}`;
-        if (w === "-m" && words[k + 1]) return `${toolName}~${words[0]} -m ${words[k + 1]}`;
-        if (w.startsWith("-")) continue;
-        return `${toolName}~${words[0]} ${w.replace(/\\/g, "/").toLowerCase()}`;
+        if (/^-[XW]$/.test(w) || /^-(ExecutionPolicy|ep)$/i.test(w)) { k++; continue; }
+        if (/^-(File|f)$/i.test(w) && /^(pwsh|powershell)$/.test(exe)) continue;
+        if (w.startsWith("-")) {
+          // Chỉ bỏ qua các cờ đã biết là vô hại; cờ khác (-c, -m, -Command, -e…) thì tính theo nguyên lệnh.
+          if (/^-(B|u|I|E|s|q|NoProfile|NonInteractive|NoLogo)$/i.test(w) || /^-X\w/.test(w)) continue;
+          return `${toolName}=${cmd}`;
+        }
+        // Tệp chương trình: khoá theo đúng tệp; các tham số sau vẫn cho đổi (cùng một chương trình).
+        if (!/\.(py|pyw|js|mjs|cjs|ts|ps1)$/i.test(w)) return `${toolName}=${cmd}`;
+        return `${toolName}~${exe} ${w.replace(/\\/g, "/").toLowerCase()}`;
       }
       return `${toolName}=${cmd}`;
     }

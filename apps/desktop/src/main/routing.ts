@@ -43,7 +43,7 @@ export function buildSystemPrompt(projectInstructions: string, autoRouting: bool
   if (extraGuide) parts.push(extraGuide);
   const ins = projectInstructions.trim();
   if (ins) parts.push(`Hướng dẫn dự án (anh Trung đặt trong Trung Kiên AI Hub, áp dụng cho mọi việc của dự án này):\n${ins}`);
-  parts.unshift("Đang làm trong Trung Kiên AI Hub cho anh Trung: trả lời tiếng Việt, xưng em, gọi anh Trung; thuật ngữ tiếng Anh thì dịch và giải thích. Tệp kết quả ghi rõ đường dẫn đầy đủ để anh bấm mở.");
+  parts.unshift("Đang làm trong Trung Kiên AI Hub cho anh Trung: trả lời tiếng Việt, xưng em, gọi anh Trung; thuật ngữ tiếng Anh thì dịch và giải thích. Tệp kết quả ghi rõ đường dẫn đầy đủ để anh bấm mở. Trong app này em là trợ lý của Trung Kiên AI Hub: không tự xưng là Claude Code.");
   // snapshot: false để sửa hướng dẫn thì hội thoại đang dở cũng theo bản mới ngay.
   return { type: "preset", preset: "claude_code", append: parts.join("\n\n"), snapshot: false };
 }

@@ -18,8 +18,8 @@ import { decideOffice, decideWindows, OFFICE_SERVER, WIN_SERVER } from "./local-
 export type QueryFn = (args: { prompt: string | AsyncIterable<SDKUserMessage>; options?: Options }) => Query;
 
 export const MAX_IMAGES = 5;
-const MAX_IMAGE_BASE64 = 7_000_000;   // khoảng 5 MB ảnh
-const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+// API nhận ảnh tối đa 5 MB; tính trên chuỗi base64 cho chắc (ảnh gốc khoảng 3,75 MB).
+const MAX_IMAGE_BASE64 = 5 * 1024 * 1024;
 const EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" };
 
 // Kiểm ảnh đính kèm; trả lý do nếu không hợp lệ.
@@ -27,11 +27,32 @@ export function checkImages(images: ImageAttachment[] | undefined): string | nul
   if (!images?.length) return null;
   if (images.length > MAX_IMAGES) return `Tối đa ${MAX_IMAGES} ảnh một lần.`;
   for (const im of images) {
-    if (!IMAGE_TYPES.has(im.mediaType)) return "Chỉ nhận ảnh PNG, JPG, GIF, WEBP.";
     if (typeof im.data !== "string" || !/^[A-Za-z0-9+/=]+$/.test(im.data)) return "Dữ liệu ảnh không hợp lệ.";
-    if (im.data.length > MAX_IMAGE_BASE64) return "Ảnh lớn quá 5 MB, chụp nhỏ lại hoặc cắt bớt.";
+    if (im.data.length > MAX_IMAGE_BASE64) return "Ảnh lớn quá (API nhận tối đa khoảng 3,7 MB mỗi ảnh), chụp nhỏ lại hoặc cắt bớt.";
+    // Loại ảnh theo nội dung, không theo đuôi tệp (ảnh Zalo đuôi .jpg có khi là webp; gửi sai loại API sẽ từ chối).
+    const real = sniffImage(im.data);
+    if (!real) return "Chỉ nhận ảnh PNG, JPG, GIF, WEBP.";
+    im.mediaType = real;
   }
   return null;
+}
+
+function sniffImage(b64: string): ImageAttachment["mediaType"] | null {
+  const h = Buffer.from(b64.slice(0, 24), "base64");
+  if (h[0] === 0x89 && h.toString("latin1", 1, 4) === "PNG") return "image/png";
+  if (h[0] === 0xff && h[1] === 0xd8 && h[2] === 0xff) return "image/jpeg";
+  if (h.toString("latin1", 0, 4) === "GIF8") return "image/gif";
+  if (h.toString("latin1", 0, 4) === "RIFF" && h.toString("latin1", 8, 12) === "WEBP") return "image/webp";
+  return null;
+}
+
+// Dữ liệu vào của bước công cụ để lưu/hiện: cắt từng chuỗi dài (nội dung tệp…) chứ không cắt cả chuỗi JSON,
+// để JSON vẫn đọc được (tên tệp, lệnh vẫn còn cho nhãn bước và thẻ mở tệp).
+export function clipInput(input: unknown, max = 1500): string {
+  const cut = (v: unknown): unknown => typeof v === "string" ? clip(v, max)
+    : Array.isArray(v) ? v.slice(0, 50).map(cut)
+    : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, cut(x)])) : v;
+  return JSON.stringify(cut(input));
 }
 
 // Câu hỏi có ảnh: gửi một tin nhắn gồm các khối ảnh rồi khối chữ (chế độ nhập dạng luồng của Agent SDK).
@@ -332,13 +353,15 @@ export class AgentRunner {
         saved.push(path.basename(f));
       });
     }
-    db.addItem({ taskId, conversationId: conv.id, kind: "user",
+    const userItem = db.addItem({ taskId, conversationId: conv.id, kind: "user",
       text: images.length ? `${prompt}\n[Ảnh đính kèm: ${saved.length ? saved.join(", ") : `${images.length} ảnh`}]` : prompt });
-    for (const note of connections.notes) db.addItem({ taskId, conversationId: conv.id, kind: "system", text: note });
+    const notes = connections.notes.map((note) => db.addItem({ taskId, conversationId: conv.id, kind: "system", text: note }));
     const run: Running = { taskId, conversationId: conv.id, allowanceUsd: u.allowedUsd, usesBrowser: !!chrome,
       query: null as unknown as Query, abort: new AbortController(), stopRequested: false, budgetHit: false };
     this.runs.set(taskId, run);
     this.deps.emit({ type: "task-started", taskId, conversationId: conv.id, allowanceUsd: u.allowedUsd });
+    // Phát câu hỏi sau task-started để giao diện biết việc thuộc hội thoại nào (việc xếp hàng cũng hiện câu hỏi).
+    for (const it of [userItem, ...notes]) this.deps.emit({ type: "item", item: it });
 
     const prevTotal = conv.sessionTotalUsd;
     const prevOk = conv.sessionTotalOk;
@@ -403,7 +426,7 @@ export class AgentRunner {
     const estBefore = this.totals(seen).cost;
     const totals = () => this.totals(seen);
     const attemptEstimate = () => totals().cost - estBefore;
-    const item = (kind: Parameters<HubDb["addItem"]>[0]["kind"], text: string, extra: { toolName?: string; isError?: boolean } = {}) =>
+    const item = (kind: Parameters<HubDb["addItem"]>[0]["kind"], text: string, extra: { toolName?: string; isError?: boolean; toolUseId?: string } = {}) =>
       emit({ type: "item", item: db.addItem({ taskId, conversationId, kind, text, ...extra }) });
 
     let status: TaskStatus = "error";
@@ -411,7 +434,8 @@ export class AgentRunner {
     let resultCost: number | null = null;
     let keyError: string | null = null;
     let sideEffects = false;
-    let streamMsg: { id: string; model: string } | null = null;
+    // Mỗi luồng (AI chính, từng AI phụ) một tin nhắn đang phát, để số token ra không lẫn khi chạy xen nhau.
+    const streamMsg = new Map<string | null, { id: string; model: string }>();
     try {
       for await (const m of q) {
         if (m.type === "system" && m.subtype === "init") {
@@ -426,9 +450,10 @@ export class AgentRunner {
         } else if (m.type === "stream_event") {
           const ev = m.event;
           // Số token cuối của mỗi lượt gọi nằm ở message_delta; tin nhắn assistant có thể mang số tạm.
-          if (ev.type === "message_start") streamMsg = { id: ev.message.id, model: ev.message.model };
-          else if (ev.type === "message_delta" && streamMsg) {
-            const cur = seen.get(streamMsg.id);
+          const sm = streamMsg.get(m.parent_tool_use_id);
+          if (ev.type === "message_start") streamMsg.set(m.parent_tool_use_id, { id: ev.message.id, model: ev.message.model });
+          else if (ev.type === "message_delta" && sm) {
+            const cur = seen.get(sm.id);
             const out = ev.usage?.output_tokens ?? 0;
             if (cur && out > cur.u.output) cur.u.output = out;
           }
@@ -461,15 +486,16 @@ export class AgentRunner {
             if (!keyError) item("error", `Lỗi từ API: ${m.error}`);
           }
           for (const b of msg.content) {
-            if (b.type === "text" && b.text.trim() && !sub && !keyError) item("assistant", b.text);
-            else if (b.type === "tool_use") sideEffects = true, item("tool_use", clip(JSON.stringify(b.input), 2000), { toolName: sub ? `${b.name} (AI phụ)` : b.name });
+            // Tin báo lỗi API: đã hiện "Lỗi từ API" ở trên, không hiện thêm chữ của nó như một câu trả lời.
+            if (b.type === "text" && b.text.trim() && !sub && !keyError && !m.error) item("assistant", b.text);
+            else if (b.type === "tool_use") sideEffects = true, item("tool_use", clipInput(b.input), { toolName: sub ? `${b.name} (AI phụ)` : b.name, toolUseId: b.id });
           }
         } else if (m.type === "user" && Array.isArray(m.message.content)) {
           for (const b of m.message.content) {
             if (b.type !== "tool_result") continue;
             const c = b.content;
             const text = typeof c === "string" ? c : Array.isArray(c) ? c.map((x) => (x.type === "text" ? x.text : `[${x.type}]`)).join("\n") : "";
-            item("tool_result", clip(text, 4000), { isError: !!b.is_error });
+            item("tool_result", clip(text, 4000), { isError: !!b.is_error, toolUseId: b.tool_use_id });
           }
         } else if (m.type === "result") {
           // total_cost_usd cộng dồn theo cả phiên khi tiếp tục hội thoại cũ: lấy phần chênh.
