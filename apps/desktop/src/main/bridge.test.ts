@@ -7,7 +7,7 @@ import path from "node:path";
 import { test } from "node:test";
 import type { StartTaskInput } from "../shared/contract";
 import { Bridge } from "./bridge";
-import { bridgeEntry, claudeCodeArgs, installDesktop, mergeConfig } from "./claude-config";
+import { bridgeEntry, claudeCodeArgs, claudeCodeCommand, installDesktop, mergeConfig } from "./claude-config";
 import { HubDb } from "./db";
 
 function post(port: number, p: string, body: unknown, headers: Record<string, string>): Promise<{ status: number; json: unknown }> {
@@ -55,6 +55,13 @@ test("cổng nối app Claude: chỉ nhận đúng mã, không nhận trang web;
   assert.equal(r.finished, true);
   assert.equal(r.answer, "Đã làm xong báo cáo mẫu.");
   assert.deepEqual(r.files, ["D:/Bao cao/ket-qua.xlsx"]);
+  // Không chen vào hội thoại không do app Claude mở; không xem/dừng việc anh tự giao trong Hub.
+  const mine = t.db.createConversation(t.proj.id, "anh tự mở");
+  const own = (await post(info.port, "/api/start", { project: "báo cáo", prompt: "x", conversationId: mine.id }, auth)).json as { error: string };
+  assert.match(own.error, /không do app Claude mở/);
+  const other = t.db.createTask({ conversationId: mine.id, prompt: "việc riêng", model: "claude-sonnet-5-5", effort: "medium", permission: "full", allowanceUsd: 1 });
+  assert.match(((await post(info.port, "/api/result", { taskId: other, wait: 0 }, auth)).json as { error: string }).error, /do app Claude giao/);
+  assert.match(((await post(info.port, "/api/stop", { taskId: other }, auth)).json as { error: string }).error, /Chỉ dừng/);
   const none = (await post(info.port, "/api/start", { project: "không có", prompt: "x" }, auth)).json as { error: string };
   assert.match(none.error, /Không thấy dự án/);
   // Tắt rồi bật lại: giữ cổng và mã (cấu hình bên app Claude không phải sửa).
@@ -107,5 +114,10 @@ test("khai báo vào app Claude: gộp, giữ máy chủ khác, sao lưu; tệp 
   writeFileSync(f, JSON.stringify({ mcpServers: {} }));
   assert.equal(installDesktop(e, [f]).ok, true);
   assert.equal(JSON.parse(readFileSync(f, "utf8")).mcpServers["trung-kien-hub"].env.ELECTRON_RUN_AS_NODE, "1");
-  assert.deepEqual(claudeCodeArgs(e).slice(0, 5), ["mcp", "add-json", "--scope", "user", "trung-kien-hub"]);
+  assert.deepEqual(claudeCodeArgs(e), ["mcp", "add", "--scope", "user", "-e", "ELECTRON_RUN_AS_NODE=1", "trung-kien-hub", "--",
+    "C:/App/Hub.exe", "C:/App/resources/app.asar.unpacked/dist/main/bridge-mcp.js", "--data", "C:/Users/a/AppData/Roaming/hub"]);
+  // Tệp có BOM (sửa bằng PowerShell 5.1) vẫn đọc được.
+  assert.ok(JSON.parse(mergeConfig("\uFEFF{\"mcpServers\":{}}", e)).mcpServers["trung-kien-hub"]);
+  const sp = bridgeEntry("C:/Program Files/Trung Kiên AI Hub/Trung Kiên AI Hub.exe", "C:/x/bridge-mcp.js", "C:/d");
+  assert.match(claudeCodeCommand(sp), /"C:\/Program Files\/Trung Kiên AI Hub\/Trung Kiên AI Hub\.exe"/);
 });

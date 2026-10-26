@@ -25,7 +25,7 @@ import { claudeExecutablePath, playwrightMcpCliPath } from "./sdk-path";
 import { profilePaths } from "./chrome";
 import { BrowserServer } from "./browser-server";
 import { Bridge } from "./bridge";
-import { bridgeEntry, claudeCodeArgs, installClaudeCode, installDesktop } from "./claude-config";
+import { bridgeEntry, claudeCodeCommand, installClaudeCode, installDesktop } from "./claude-config";
 import { runSmokeTest } from "./smoke";
 import { checkUpdateNow, installUpdate, startUpdater } from "./updater";
 
@@ -401,8 +401,8 @@ async function startApp() {
   const bridgeScript = path.join(__dirname, "bridge-mcp.js").replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
   const entry = bridgeEntry(process.execPath, bridgeScript, dataDir);
   registerIpc(db, keys, runner, skills, conns, ext, jobs, backups);
-  ipcMain.handle("bridgeInfo", () => ({ ...bridge.get(), token: undefined, entry, codeArgs: claudeCodeArgs(entry) }));
-  ipcMain.handle("setBridgeEnabled", async (_e, on: boolean) => { await bridge.setEnabled(on === true); return { ...bridge.get(), token: undefined, entry, codeArgs: claudeCodeArgs(entry) }; });
+  ipcMain.handle("bridgeInfo", () => ({ ...bridge.get(), token: undefined, entry, codeCommand: claudeCodeCommand(entry) }));
+  ipcMain.handle("setBridgeEnabled", async (_e, on: boolean) => { await bridge.setEnabled(on === true); return { ...bridge.get(), token: undefined, entry, codeCommand: claudeCodeCommand(entry) }; });
   ipcMain.handle("installBridge", (_e, target: string) => (target === "code" ? installClaudeCode(entry) : installDesktop(entry)));
 
   win = new BrowserWindow({

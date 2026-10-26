@@ -77,3 +77,11 @@ Mục mới nối xuống cuối, theo mẫu chung (skill `quy-tac-lam-viec-chun
 - Sao lưu để hoàn tác: tag v0.5.1.
 - Khoá đã nhả: dòng 0.6.0 trong `KHOA-VIEC.md`.
 - Việc cần anh Trung: kết nối lại GitHub; cập nhật lên 0.6.0; tải skill bao-cao-cty lên mục Skills; thêm thư mục `D:\ChatGPT\Báo cáo công ty` làm dự án.
+
+## BÀN GIAO: Trung Kiên AI Hub · Claude-1 · 26/10/2026 07:54
+
+- Việc đã làm từ 23/10: bản 0.6.0–0.7.0 (giao diện như app Claude, mở tệp, sửa lỗi trả lời, đăng nhập Google mở Chrome, trạng thái đang chạy, tiền hội thoại, gửi thêm khi đang chạy, AI phụ nền, Đủ quyền không hỏi, trình duyệt dùng chung tự tắt 5 phút, nối app Claude/Claude Code qua MCP). Chi tiết: `ho-so/NHAT-KY.md` các mục 23/10 và 26/10.
+- Làm tới đâu: nhánh `claude/intelligent-hopper-v2t54v`, Release v0.7.0 do CI đăng.
+- Chưa xác minh trên máy thật: chạy Claude thật, Chrome Windows, đăng nhập Google, nối app Claude.
+- Còn treo: câu hỏi Zalo (1 AI Desk chỉ đọc / 2 Zalo OA / 3 chưa làm).
+- Khoá đã nhả: dòng 0.7.0 trong `KHOA-VIEC.md`.

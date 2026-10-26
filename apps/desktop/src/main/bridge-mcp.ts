@@ -12,13 +12,13 @@ const dataDir = dataArg > 0 ? process.argv[dataArg + 1] : "";
 const TOOLS = [
   { name: "hub_du_an", description: "Liệt kê các dự án trong Trung Kiên AI Hub (tên, thư mục). Dùng trước khi giao việc để lấy đúng tên dự án.",
     inputSchema: { type: "object", properties: {} } },
-  { name: "hub_giao_viec", description: "Giao một việc cho Trung Kiên AI Hub làm trong một dự án. Hub chạy bằng API key của anh Trung (tính tiền theo API, có hạn mức), dùng Skills, CLAUDE.md/AGENTS.md, kết nối và quyền của dự án. Trả về taskId; sau đó gọi hub_ket_qua để chờ và lấy kết quả. Truyền conversationId để làm tiếp trong cùng hội thoại (nếu hội thoại đang chạy, tin được gửi thêm vào việc đang làm).",
+  { name: "hub_giao_viec", description: "Giao một việc cho Trung Kiên AI Hub làm trong một dự án. Hub chạy bằng API key của anh Trung (tính tiền theo API, có hạn mức), dùng Skills, CLAUDE.md/AGENTS.md, kết nối và quyền của dự án. Trả về taskId; sau đó gọi hub_ket_qua để chờ và lấy kết quả. Truyền conversationId (từ kết quả lần trước) để làm tiếp trong cùng hội thoại đã mở qua công cụ này; hội thoại đang chạy thì tin được gửi thêm vào việc đang làm.",
     inputSchema: { type: "object", required: ["project", "prompt"], properties: {
       project: { type: "string", description: "Tên (hoặc mã số) dự án trong Hub" },
       prompt: { type: "string", description: "Yêu cầu đầy đủ, tự đủ ý (Hub không thấy cuộc trò chuyện này)" },
       conversationId: { type: "number", description: "Mã hội thoại Hub để làm tiếp (lấy từ kết quả lần trước)" } } } },
-  { name: "hub_ket_qua", description: "Chờ tối đa `wait` giây (mặc định 30, tối đa 55) rồi trả trạng thái và câu trả lời của việc trong Hub: status (running/done/error/stopped/budget), answer, files (tệp đã tạo/sửa), costUsd. Chưa xong (finished=false) thì gọi lại. Nếu waitingForPermission có chữ: anh Trung cần bấm cho phép trong cửa sổ Hub.",
-    inputSchema: { type: "object", required: ["taskId"], properties: { taskId: { type: "number" }, wait: { type: "number" } } } },
+  { name: "hub_ket_qua", description: "Chờ tối đa `wait` giây (mặc định 30, tối đa 55) rồi trả trạng thái và câu trả lời của việc trong Hub: status (running/done/error/stopped/budget), answer, files (tệp đã tạo/sửa), costUsd. Chưa xong (finished=false) thì gọi lại. Việc bị xếp hàng thì truyền queueId thay cho taskId. Nếu waitingForPermission có chữ: anh Trung cần bấm cho phép trong cửa sổ Hub.",
+    inputSchema: { type: "object", properties: { taskId: { type: "number" }, queueId: { type: "number", description: "Khi hub_giao_viec trả queued=true" }, wait: { type: "number" } } } },
   { name: "hub_viec_dang_chay", description: "Liệt kê các việc Hub đang chạy.", inputSchema: { type: "object", properties: {} } },
   { name: "hub_dung", description: "Dừng một việc đang chạy trong Hub.", inputSchema: { type: "object", required: ["taskId"], properties: { taskId: { type: "number" } } } },
 ];

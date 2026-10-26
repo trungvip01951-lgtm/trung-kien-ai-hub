@@ -107,7 +107,7 @@ export interface ConnectionInfo {
 export interface BridgeView {
   enabled: boolean; port: number;
   entry: { command: string; args: string[]; env: Record<string, string> };   // khai báo máy chủ MCP cho app Claude
-  codeArgs: string[];                                                         // lệnh claude ... cho Claude Code
+  codeCommand: string;                                                        // lệnh claude mcp add ... cho Claude Code
 }
 
 export interface Settings {

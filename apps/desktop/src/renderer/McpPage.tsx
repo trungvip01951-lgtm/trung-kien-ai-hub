@@ -142,7 +142,6 @@ function ClaudeBridge() {
   };
   if (!b) return null;
   const desktopJson = JSON.stringify({ mcpServers: { "trung-kien-hub": b.entry } }, null, 2);
-  const codeCmd = ["claude", ...b.codeArgs.slice(0, -1), `'${b.codeArgs[b.codeArgs.length - 1]}'`].join(" ");
   return (
     <>
       <h2>Kết nối với app Claude</h2>
@@ -169,7 +168,7 @@ function ClaudeBridge() {
             <div>App Claude: dán vào tệp <span className="mono">%APPDATA%\Claude\claude_desktop_config.json</span> (gộp vào mục mcpServers có sẵn):</div>
             <pre className="mono">{desktopJson}</pre>
             <div>Claude Code: chạy lệnh</div>
-            <pre className="mono">{codeCmd}</pre>
+            <pre className="mono">{b.codeCommand}</pre>
           </details>
         </>
       )}
