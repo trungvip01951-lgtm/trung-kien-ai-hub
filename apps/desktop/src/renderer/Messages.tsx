@@ -10,8 +10,6 @@ const SERVER_NAME: Record<string, string> = {
   office: "Tài liệu", windows: "Windows", chrome: "Trình duyệt", memory: "Bộ nhớ",
   Google_Sheets: "Trang tính", Google_Drive: "Drive", Gmail: "Gmail", Windsor_ai: "Windsor",
 };
-const FILE_WRITE = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
-const OFFICE_WRITE = new Set(["excel_write", "word_create", "word_replace", "pdf_from_html"]);
 // Đường dẫn tệp tài liệu (Windows hoặc tương đối, cho phép dấu cách khi có thư mục), để biến thành chỗ bấm mở.
 // Chỉ nhận đuôi tài liệu, bảng, ảnh, chữ: "0.3.308" hay "v1.2" không thành chỗ bấm.
 const DOC_EXT = "(?:xlsx|xlsm|xls|csv|tsv|docx|doc|pdf|pptx|ppt|odt|ods|rtf|txt|md|log|json|xml|ya?ml|html?|png|jpe?g|gif|webp|bmp|svg|mp4|mp3|wav|zip)";
@@ -46,19 +44,7 @@ export function toolLabel(toolName: string, input: Record<string, unknown>): { i
   return { icon: r.icon, label: r.label + sub };
 }
 
-// Tệp agent tạo/sửa trong các bước (để hiện thẻ mở tệp).
-export function filesFromSteps(items: ChatItem[]): string[] {
-  const out: string[] = [];
-  for (const it of items) {
-    if (it.kind !== "tool_use" || !it.toolName) continue;
-    const name = it.toolName.replace(/ \(AI phụ\)$/, "");
-    const i = parse(it.text);
-    const m = /^mcp__office__(.+)$/.exec(name);
-    const f = FILE_WRITE.has(name) ? (i.file_path ?? i.notebook_path) : m && OFFICE_WRITE.has(m[1]) ? i.file : null;
-    if (typeof f === "string" && f && !out.includes(f)) out.push(f);
-  }
-  return out;
-}
+export { filesFromSteps } from "../shared/steps";
 
 function open(p: string, projectId: number | null, folder = false, onError?: (m: string) => void) {
   window.hub.openFile(p, projectId, folder).then((r) => { if (!r.ok) onError?.(r.message); }, (e) => onError?.(String(e)));

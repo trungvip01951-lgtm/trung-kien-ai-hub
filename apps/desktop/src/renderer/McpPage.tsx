@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ConnectionInfo, ConnectionKind } from "../shared/contract";
+import type { BridgeView, ConnectionInfo, ConnectionKind } from "../shared/contract";
 import { fmtDate } from "./util";
 
 const PRESETS: { kind: Exclude<ConnectionKind, "custom">; label: string }[] = [
@@ -96,6 +96,8 @@ export function McpPage() {
         </>
       )}
 
+      <ClaudeBridge />
+
       <h2>Máy chủ MCP khác</h2>
       <div className="row">
         <input placeholder="Tên (ví dụ: Search Console)" value={custom.name} onChange={(e) => setCustom({ ...custom, name: e.target.value })} />
@@ -126,5 +128,51 @@ export function McpPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// Nối app Claude (máy tính) / Claude Code vào Hub: chat trên Claude, việc giao sang Hub chạy bằng API key.
+function ClaudeBridge() {
+  const [b, setB] = useState<BridgeView | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => { window.hub.bridgeInfo().then(setB).catch((e) => setMsg({ ok: false, text: String(e) })); }, []);
+  const run = async (fn: () => Promise<{ ok: boolean; message: string }>) => {
+    setMsg(null);
+    try { const r = await fn(); setMsg({ ok: r.ok, text: r.message }); } catch (e) { setMsg({ ok: false, text: String(e) }); }
+  };
+  if (!b) return null;
+  const desktopJson = JSON.stringify({ mcpServers: { "trung-kien-hub": b.entry } }, null, 2);
+  const codeCmd = ["claude", ...b.codeArgs.slice(0, -1), `'${b.codeArgs[b.codeArgs.length - 1]}'`].join(" ");
+  return (
+    <>
+      <h2>Kết nối với app Claude</h2>
+      <div className="card small">
+        Chat trong <b>app Claude trên máy tính</b> hoặc <b>Claude Code</b>, rồi bảo "giao Hub làm … ở dự án …": Claude gọi công cụ <span className="mono">trung-kien-hub</span>,
+        Hub chạy việc bằng <b>API key của Hub</b> (theo hạn mức, mức quyền mặc định trong Cài đặt, Skills và kết nối của dự án) rồi trả kết quả về khung chat Claude.
+        Phần Claude trò chuyện vẫn tính vào gói Claude của anh; phần việc Hub làm tính vào API. Hộp hỏi quyền (nếu có) hiện ở cửa sổ Hub.
+        Chỉ chạy khi Hub đang mở; chỉ chương trình trên máy này nối được (cổng 127.0.0.1 có mã bí mật).
+      </div>
+      {msg && <div className={`alert ${msg.ok ? "info" : "danger"}`}>{msg.text}</div>}
+      <div className="row">
+        <button className={b.enabled ? "" : "primary"} onClick={() => void window.hub.setBridgeEnabled(!b.enabled).then(setB).catch((e) => setMsg({ ok: false, text: String(e) }))}>
+          {b.enabled ? "Tắt kết nối" : "Bật kết nối"}</button>
+        <span className="small muted">{b.enabled ? `Đang bật (cổng ${b.port})` : "Đang tắt"}</span>
+      </div>
+      {b.enabled && (
+        <>
+          <div className="row">
+            <button onClick={() => void run(() => window.hub.installBridge("desktop"))}>Cài vào app Claude (máy tính)</button>
+            <button onClick={() => void run(() => window.hub.installBridge("code"))}>Cài vào Claude Code</button>
+          </div>
+          <details className="small">
+            <summary>Tự khai báo bằng tay</summary>
+            <div>App Claude: dán vào tệp <span className="mono">%APPDATA%\Claude\claude_desktop_config.json</span> (gộp vào mục mcpServers có sẵn):</div>
+            <pre className="mono">{desktopJson}</pre>
+            <div>Claude Code: chạy lệnh</div>
+            <pre className="mono">{codeCmd}</pre>
+          </details>
+        </>
+      )}
+    </>
   );
 }

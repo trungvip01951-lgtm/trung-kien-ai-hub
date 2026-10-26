@@ -24,6 +24,8 @@ import type { SpecialistInfo } from "../shared/contract";
 import { claudeExecutablePath, playwrightMcpCliPath } from "./sdk-path";
 import { profilePaths } from "./chrome";
 import { BrowserServer } from "./browser-server";
+import { Bridge } from "./bridge";
+import { bridgeEntry, claudeCodeArgs, installClaudeCode, installDesktop } from "./claude-config";
 import { runSmokeTest } from "./smoke";
 import { checkUpdateNow, installUpdate, startUpdater } from "./updater";
 
@@ -389,7 +391,19 @@ async function startApp() {
     () => (browserWindowOpen ? "Trình duyệt của app đang mở để đăng nhập" : null));
   afterTask = () => void jobs.pump();
   setSelfPids(() => (win && !win.isDestroyed() ? [win.webContents.getOSProcessId()] : []));
+  // Cổng nối app Claude / Claude Code (việc giao từ Claude chạy bằng API key của Hub).
+  const bridge = new Bridge(path.join(dataDir, "bridge.json"), {
+    db, enqueue: (i) => jobs.enqueue(i, "Claude"), stop: (id) => runner.stop(id), running: () => runner.runningTasks(), pendingAsk: (id) => runner.pendingAsk(id),
+    start: async (i) => (browserWindowOpen ? { ok: false, busy: true, message: "Trình duyệt của app đang mở để đăng nhập" } : runner.start(i)),
+  });
+  try { await bridge.init(); } catch (err) { console.error("Không mở được cổng nối app Claude:", err); }
+  app.on("will-quit", () => bridge.close());
+  const bridgeScript = path.join(__dirname, "bridge-mcp.js").replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
+  const entry = bridgeEntry(process.execPath, bridgeScript, dataDir);
   registerIpc(db, keys, runner, skills, conns, ext, jobs, backups);
+  ipcMain.handle("bridgeInfo", () => ({ ...bridge.get(), token: undefined, entry, codeArgs: claudeCodeArgs(entry) }));
+  ipcMain.handle("setBridgeEnabled", async (_e, on: boolean) => { await bridge.setEnabled(on === true); return { ...bridge.get(), token: undefined, entry, codeArgs: claudeCodeArgs(entry) }; });
+  ipcMain.handle("installBridge", (_e, target: string) => (target === "code" ? installClaudeCode(entry) : installDesktop(entry)));
 
   win = new BrowserWindow({
     width: 1280, height: 820, minWidth: 960, minHeight: 600, title: "Trung Kiên AI Hub",

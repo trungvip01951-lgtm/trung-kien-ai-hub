@@ -182,6 +182,12 @@ export class AgentRunner {
   constructor(private deps: AgentDeps) {}
 
   runningTaskId(): number | null { return this.runs.keys().next().value ?? null; }
+  // Việc đang chờ anh trả lời hộp hỏi quyền.
+  pendingAsk(taskId: number): boolean {
+    for (const p of this.pending.values()) if (p.taskId === taskId) return true;
+    return false;
+  }
+
   runningTasks(): { taskId: number; conversationId: number }[] {
     return [...this.runs.values()].map((r) => ({ taskId: r.taskId, conversationId: r.conversationId }));
   }

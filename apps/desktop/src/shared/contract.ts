@@ -103,6 +103,13 @@ export interface ConnectionInfo {
   needsClientId: boolean; hasClientId: boolean;   // Google: cần OAuth client anh tạo trong Google Cloud
 }
 
+// Kết nối app Claude / Claude Code vào Hub (máy chủ MCP "trung-kien-hub").
+export interface BridgeView {
+  enabled: boolean; port: number;
+  entry: { command: string; args: string[]; env: Record<string, string> };   // khai báo máy chủ MCP cho app Claude
+  codeArgs: string[];                                                         // lệnh claude ... cho Claude Code
+}
+
 export interface Settings {
   limits: Limits; defaultModel: ModelId; defaultEffort: Effort;
   defaultPermission: PermissionLevel; theme: "system" | "light" | "dark";
@@ -199,6 +206,9 @@ export interface HubApi {
   setConnectionClient(id: string, clientId: string, clientSecret: string): Promise<{ ok: boolean; message: string }>;
   importGoogleClient(id: string): Promise<{ ok: boolean; message: string }>;
   setTaskPermission(taskId: number, level: PermissionLevel): Promise<void>;
+  bridgeInfo(): Promise<BridgeView>;
+  setBridgeEnabled(on: boolean): Promise<BridgeView>;
+  installBridge(target: "desktop" | "code"): Promise<{ ok: boolean; message: string }>;
   loginConnection(id: string): Promise<{ ok: boolean; message: string }>;   // mở trình duyệt mặc định để đăng nhập
   logoutConnection(id: string): Promise<void>;
   // Mã ghép nối tiện ích Playwright Extension (để khỏi phải bấm đồng ý mỗi lần); lưu mã hoá.

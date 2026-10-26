@@ -70,6 +70,10 @@ export async function runSmokeTest(outFile?: string): Promise<boolean> {
   const files = ["preload.js", path.join("renderer", "index.html")].map((f) => path.join(dist, f));
   checks.push({ name: "ui-files", pass: files.every(existsSync), detail: files.join(" | ") });
 
+  // 5b. Công cụ MCP cho app Claude nằm ngoài app.asar (app Claude chạy nó bằng tệp chạy của Hub ở chế độ Node).
+  const bridgeScript = path.join(__dirname, "bridge-mcp.js").replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
+  checks.push({ name: "claude-bridge-mcp", pass: existsSync(bridgeScript), detail: bridgeScript });
+
   // 6. Bản đã cài có tệp cấu hình tự cập nhật.
   if (process.resourcesPath && !process.defaultApp) {
     const f = path.join(process.resourcesPath, "app-update.yml");

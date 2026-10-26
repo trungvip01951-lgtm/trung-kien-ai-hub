@@ -113,3 +113,7 @@ Nghĩa: không báo tiến độ giữa chừng; chỉ báo khi xong để anh c
 
 ## 23/10/2026 — phiên Claude Code (web), kèm ảnh Chrome của app có tiện ích Claude đòi đăng nhập
 > dùng chome của app đăng nhập claude như ảnh app có điều khiển đc chome và làm việc dễ dàng hơn ko nếu có thì cài đặt và bảo a để a đăng nhập pugin claude
+
+## 26/10/2026 — phiên Claude Code (web)
+> Dự án này có thêm chức năng để claude kết nối đc vào dự án song làm trên claude tiêu api gắn vào dự án này ko e
+- Em đưa 3 cách; anh trả lời: "1" (Hub thành công cụ MCP cho app Claude máy tính/Claude Code: chat trên Claude, việc giao sang Hub chạy bằng API key).
